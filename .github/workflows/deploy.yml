@@ -23,4 +23,3 @@ jobs:
           git add -A
           git commit -m "deploy"
           git push https://mvp-lab:$HF_TOKEN@huggingface.co/spaces/mvp-lab/VTON_TEST hf-clean:main -f
-          git push https://mvp-lab:$HF_TOKEN@huggingface.co/spaces/mvp-lab/VTON_TEST --delete hugging-face-deploy || true
