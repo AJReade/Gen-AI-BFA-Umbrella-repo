@@ -7,6 +7,9 @@ from ultralytics import YOLO
 import gradio as gr
 import requests
 from io import BytesIO
+from pathlib import Path
+import subprocess
+import sys
 
 class MultiPersonVTON:
     def __init__(self, weights_dir="./weights"):
@@ -210,7 +213,25 @@ def create_demo():
     
     return demo
 
+
+WEIGHTS_DIR = Path("./weights")
+
+def ensure_weights():
+    if WEIGHTS_DIR.exists() and any(WEIGHTS_DIR.iterdir()):
+        print("Weights already present, skipping download.")
+        return
+
+    print("Downloading weights...")
+    subprocess.check_call([
+        sys.executable,
+        "fashn-vton-1.5/scripts/download_weights.py",
+        "--weights-dir",
+        str(WEIGHTS_DIR),
+    ])
+    
+
 # Run function for Hugging Face Spaces
 if __name__ == "__main__":
+    ensure_weights()
     demo = create_demo()
     demo.launch()
