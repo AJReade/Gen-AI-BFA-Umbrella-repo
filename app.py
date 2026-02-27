@@ -1,3 +1,4 @@
+import spaces
 import cv2
 import numpy as np
 from PIL import Image
@@ -5,7 +6,6 @@ import torch
 from fashn_vton import TryOnPipeline
 from ultralytics import YOLO
 import gradio as gr
-import spaces
 import requests
 from io import BytesIO
 from pathlib import Path
