@@ -231,7 +231,9 @@ def ensure_weights():
     
 
 # Run function for Hugging Face Spaces
-if __name__ == "__main__":
-    ensure_weights()
-    demo = create_demo()
-    demo.launch()
+ensure_weights()
+demo = create_demo()
+demo.launch(
+    sever_port = 7860,
+    server_name = "0.0.0.0"
+)
