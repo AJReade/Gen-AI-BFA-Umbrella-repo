@@ -125,17 +125,17 @@ class MultiPersonVTON:
         # Load and prepare the original image
         if isinstance(group_image, Image.Image):
             # Save temporarily to match notebook's file loading pattern
-            group_image.save("examples/data/people.png")
+            group_image.save("people.png")
         
         # Load image
-        img_bgr = cv2.imread("examples/data/people.png")
+        img_bgr = cv2.imread("people.png")
         img = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         H, W = img.shape[:2]
         
         print("Step 2: Getting segmentation masks with YOLO...")
         
         # Run YOLO segmentation
-        results = self.model("examples/data/people.png")
+        results = self.model("people.png")
         result = results[0]
         
         # Get masks using notebook's get_mask function
@@ -214,7 +214,11 @@ def get_pipeline():
 @spaces.GPU
 def process_images(group_img, garment_img, category):
     pipeline = get_pipeline()
-    result, _ = pipeline.process_group_image(group_img, garment_img, category)
+    new_width = 576
+    w, h = group_img.size
+    new_height = int(h * new_width / w)
+    resized = group_img.resize((new_width, new_height), Image.LANCZOS)
+    result, _ = pipeline.process_group_image(resized, garment_img, category)
     return result
 
 demo = gr.Interface(
@@ -232,7 +236,7 @@ demo = gr.Interface(
     title="Multi-Person Virtual Try-On",
     description="Upload a group photo and a garment to try it on everyone in the photo!",
     examples=[
-        ["examples/data/people.png", "examples/data/garment.webp", "tops"],
+        ["people.png", "garment.webp", "tops"],
     ],
 )
 
