@@ -17,6 +17,8 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          git config user.email "deploy@github.com"
+          git config user.name "Deploy Bot"
           git checkout --orphan hf-clean
           git add -A
           git commit -m "deploy"
