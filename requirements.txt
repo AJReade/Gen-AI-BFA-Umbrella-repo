@@ -1,0 +1,6 @@
+gradio==6.7.0
+numpy==2.4.2
+Pillow==12.1.1
+Requests==2.32.5
+torch==2.10.0
+ultralytics==8.4.18
