@@ -5,6 +5,7 @@ import torch
 from fashn_vton import TryOnPipeline
 from ultralytics import YOLO
 import gradio as gr
+import spaces
 import requests
 from io import BytesIO
 from pathlib import Path
@@ -182,38 +183,6 @@ class MultiPersonVTON:
             "vton_masks": vton_masks
         }
 
-# Create Gradio interface
-def create_demo():
-    # Initialize pipeline
-    pipeline = MultiPersonVTON()
-    
-    def process_images(group_img, garment_img, category):
-        """Wrapper function for Gradio"""
-        result, _ = pipeline.process_group_image(group_img, garment_img, category)
-        return result
-    
-    demo = gr.Interface(
-        fn=process_images,
-        inputs=[
-            gr.Image(type="pil", label="Group Photo"),
-            gr.Image(type="pil", label="Garment"),
-            gr.Radio(
-                choices=["tops", "bottoms", "one-pieces"],
-                value="tops",
-                label="Category",
-            ),
-        ],
-        outputs=gr.Image(type="pil", label="Result"),
-        title="Multi-Person Virtual Try-On",
-        description="Upload a group photo and a garment to try it on everyone in the photo!",
-        examples=[
-            ["examples/data/people.png", "examples/data/garment.webp", "tops"],
-        ],
-    )
-    
-    return demo
-
-
 WEIGHTS_DIR = Path("./weights")
 
 def ensure_weights():
@@ -228,12 +197,43 @@ def ensure_weights():
         "--weights-dir",
         str(WEIGHTS_DIR),
     ])
-    
 
-# Run function for Hugging Face Spaces
+
+# Download weights at startup (CPU-only, no GPU needed)
 ensure_weights()
-demo = create_demo()
-demo.launch(
-    sever_port = 7860,
-    server_name = "0.0.0.0"
+
+# Lazy-load pipeline on first GPU request
+_pipeline = None
+
+def get_pipeline():
+    global _pipeline
+    if _pipeline is None:
+        _pipeline = MultiPersonVTON()
+    return _pipeline
+
+@spaces.GPU
+def process_images(group_img, garment_img, category):
+    pipeline = get_pipeline()
+    result, _ = pipeline.process_group_image(group_img, garment_img, category)
+    return result
+
+demo = gr.Interface(
+    fn=process_images,
+    inputs=[
+        gr.Image(type="pil", label="Group Photo"),
+        gr.Image(type="pil", label="Garment"),
+        gr.Radio(
+            choices=["tops", "bottoms", "one-pieces"],
+            value="tops",
+            label="Category",
+        ),
+    ],
+    outputs=gr.Image(type="pil", label="Result"),
+    title="Multi-Person Virtual Try-On",
+    description="Upload a group photo and a garment to try it on everyone in the photo!",
+    examples=[
+        ["examples/data/people.png", "examples/data/garment.webp", "tops"],
+    ],
 )
+
+demo.launch()
