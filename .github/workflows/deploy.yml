@@ -16,4 +16,8 @@ jobs:
       - name: Push to hub
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: git push https://mvp-lab:$HF_TOKEN@huggingface.co/spaces/mvp-lab/VTON_TEST deploy:main -f
+        run: |
+          git checkout --orphan hf-clean
+          git add -A
+          git commit -m "deploy"
+          git push https://mvp-lab:$HF_TOKEN@huggingface.co/spaces/mvp-lab/VTON_TEST hf-clean:main -f
