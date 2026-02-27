@@ -7,6 +7,9 @@ from ultralytics import YOLO
 import gradio as gr
 import requests
 from io import BytesIO
+from pathlib import Path
+import subprocess
+import sys
 
 class MultiPersonVTON:
     def __init__(self, weights_dir="./weights"):
@@ -209,8 +212,10 @@ def create_demo():
     )
     
     return demo
+    
 
 # Run function for Hugging Face Spaces
 if __name__ == "__main__":
+    ensure_weights()
     demo = create_demo()
     demo.launch()
