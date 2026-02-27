@@ -13,10 +13,16 @@ jobs:
         with:
           fetch-depth: 1
           lfs: true
-      - name: Push to hub
+      - name: Enable Xet and push to hub
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          pip install huggingface_hub[hf_xet]
+          curl -s -X PUT \
+            "https://huggingface.co/api/spaces/mvp-lab/VTON_TEST/settings" \
+            -H "Authorization: Bearer $HF_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{"xetEnabled": true}'
           git config user.email "deploy@github.com"
           git config user.name "Deploy Bot"
           git checkout --orphan hf-clean
