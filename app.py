@@ -268,7 +268,7 @@ class MultiPersonVTON:
             cleaned_vton_people.append(cleaned_img)
             cleaned_vton_masks.append(cleaned_mask)
 
-    return cleaned_vton_people, cleaned_vton_masks
+        return cleaned_vton_people, cleaned_vton_masks
     
     def process_group_image(self, group_image, garment_image, category="tops"):
         """
@@ -403,7 +403,21 @@ demo = gr.Interface(
     title="Multi-Person Virtual Try-On",
     description="Upload a group photo and a garment to try it on everyone in the photo!",
     examples=[
-        ["people.png", "garment.webp", "tops"],
+        [
+            "https://thumbs.dreamstime.com/b/full-length-portrait-group-young-men-wearing-jeans-looking-camera-smiling-35328409.jpg",
+            "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSBSini_IJ4fNb8KY5daCwL1YJsKHHYKvtDKw&s",
+            "tops"
+        ],
+        [
+            "https://thumbs.dreamstime.com/b/full-length-portrait-group-young-men-wearing-jeans-looking-camera-smiling-35328409.jpg",
+            "https://m.media-amazon.com/images/I/71MOLnS-yML._AC_UY1000_.jpg",
+            "tops"
+        ],
+        [
+            "https://thumbs.dreamstime.com/b/full-length-portrait-group-young-men-wearing-jeans-looking-camera-smiling-35328409.jpg",
+            "https://i5.cloudfable.net/styles/550x550/8.170/Black/sekiro-shadows-die-twice-logo-t-shirt-20240707100621-2p12jrb0-s2.jpg",
+            "tops"
+        ],
     ],
 )
 
