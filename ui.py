@@ -46,6 +46,11 @@ def build_demo(process_fn):
             raise gr.Error("Please select a portrait and a garment.")
         result = process_fn(portrait_path, garment_path, category)
         if result and portrait_path and garment_path:
+            for p in [portrait_path, garment_path]:
+                local = Path(p)
+                if local.exists() and str(local).startswith(str(LOCAL_DATA)):
+                    remote = str(local.relative_to(LOCAL_DATA))
+                    upload_image(local, remote)
             parsed = parse_filename(Path(portrait_path).name)
             if parsed:
                 save_result(UPLOADS_PREFIX, parsed["id"], category, result)
@@ -150,7 +155,6 @@ def build_demo(process_fn):
                     fname = make_filename(item_id, current_category, "portrait")
                     local_path = LOCAL_DATA / UPLOADS_PREFIX / "portraits" / fname
                     save_image(img, local_path)
-                    upload_image(local_path, f"{UPLOADS_PREFIX}/portraits/{fname}")
                     path = str(local_path)
                     return _gallery_images(UPLOADS_PREFIX, "portraits"), path, path, None
 
@@ -161,7 +165,6 @@ def build_demo(process_fn):
                     fname = make_filename(item_id, current_category, "garment")
                     local_path = LOCAL_DATA / UPLOADS_PREFIX / "garments" / fname
                     save_image(img, local_path)
-                    upload_image(local_path, f"{UPLOADS_PREFIX}/garments/{fname}")
                     path = str(local_path)
                     return _gallery_images(UPLOADS_PREFIX, "garments"), path, path, None
 
@@ -175,7 +178,6 @@ def build_demo(process_fn):
                         fname = make_filename(item_id, current_category, "portrait")
                         dest = LOCAL_DATA / UPLOADS_PREFIX / "portraits" / fname
                         save_image(PILImage.open(local_path), dest)
-                        upload_image(dest, f"{UPLOADS_PREFIX}/portraits/{fname}")
                         local_path = str(dest)
                     return _gallery_images(UPLOADS_PREFIX, "portraits"), local_path, local_path, ""
 
@@ -189,7 +191,6 @@ def build_demo(process_fn):
                         fname = make_filename(item_id, current_category, "garment")
                         dest = LOCAL_DATA / UPLOADS_PREFIX / "garments" / fname
                         save_image(PILImage.open(local_path), dest)
-                        upload_image(dest, f"{UPLOADS_PREFIX}/garments/{fname}")
                         local_path = str(dest)
                     return _gallery_images(UPLOADS_PREFIX, "garments"), local_path, local_path, ""
 

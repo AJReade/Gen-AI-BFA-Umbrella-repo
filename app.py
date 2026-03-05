@@ -262,4 +262,5 @@ def process_images(selected_portrait, selected_garment, category):
     return result
 
 demo = build_demo(process_images)
-demo.launch()
+from huggingface_hub import constants as hf_constants
+demo.launch(allowed_paths=[hf_constants.HF_HUB_CACHE])
