@@ -242,9 +242,15 @@ def build_demo(process_fn):
                 gr.Markdown("Upload a portrait, garment, and result image together as an example.")
 
                 with gr.Row():
-                    admin_portrait = gr.Image(type="pil", label="Portrait")
-                    admin_garment = gr.Image(type="pil", label="Garment")
-                    admin_result = gr.Image(type="pil", label="Result")
+                    with gr.Column():
+                        admin_portrait = gr.Image(type="pil", label="Portrait")
+                        admin_portrait_url = gr.Textbox(label="Or paste URL")
+                    with gr.Column():
+                        admin_garment = gr.Image(type="pil", label="Garment")
+                        admin_garment_url = gr.Textbox(label="Or paste URL")
+                    with gr.Column():
+                        admin_result = gr.Image(type="pil", label="Result")
+                        admin_result_url = gr.Textbox(label="Or paste URL")
 
                 admin_category = gr.Radio(
                     choices=["tops", "bottoms", "one-pieces"],
@@ -281,9 +287,21 @@ def build_demo(process_fn):
                         ])
                     return rows
 
-                def on_admin_upload(portrait, garment, result, cat):
+                def _resolve_image(img, url):
+                    """Use uploaded image if available, otherwise download from URL."""
+                    if img is not None:
+                        return img
+                    if url and url.strip():
+                        local = download_to_local(url.strip())
+                        return Image.open(local)
+                    return None
+
+                def on_admin_upload(portrait, garment, result, p_url, g_url, r_url, cat):
+                    portrait = _resolve_image(portrait, p_url)
+                    garment = _resolve_image(garment, g_url)
+                    result = _resolve_image(result, r_url)
                     if portrait is None or garment is None:
-                        return "Please provide at least portrait and garment.", get_examples_table()
+                        return "Please provide at least portrait and garment (file or URL).", get_examples_table()
                     save_image_set(EXAMPLES_PREFIX, portrait, garment, cat, result)
                     return "Example added.", get_examples_table()
 
@@ -295,7 +313,9 @@ def build_demo(process_fn):
 
                 admin_upload_btn.click(
                     on_admin_upload,
-                    inputs=[admin_portrait, admin_garment, admin_result, admin_category],
+                    inputs=[admin_portrait, admin_garment, admin_result,
+                            admin_portrait_url, admin_garment_url, admin_result_url,
+                            admin_category],
                     outputs=[admin_status, admin_examples_table],
                 )
                 delete_btn.click(
