@@ -4,16 +4,16 @@ from pathlib import Path
 from PIL import Image
 import numpy as np
 
-DATA_REPO = "mvp-lab/vton-data"
+DATA_REPO = "aj406/vton-data"
 REPO_TYPE = "dataset"
-HF_TOKEN = os.environ.get("HF_TOKEN")
+DATASET_HF_TOKEN = os.environ.get("DATASET_HF_TOKEN")
 LOCAL_DATA = Path("data")
 
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 def is_remote():
-    return HF_TOKEN is not None
+    return DATASET_HF_TOKEN is not None
 
 
 def _api():
@@ -24,7 +24,7 @@ def _api():
 def _ensure_repo():
     if not is_remote():
         return
-    _api().create_repo(repo_id=DATA_REPO, repo_type=REPO_TYPE, exist_ok=True, token=HF_TOKEN)
+    _api().create_repo(repo_id=DATA_REPO, repo_type=REPO_TYPE, exist_ok=True, token=DATASET_HF_TOKEN)
 
 
 def save_image(img, local_path):
@@ -44,7 +44,7 @@ def upload_image(local_path, remote_path):
         path_in_repo=remote_path,
         repo_id=DATA_REPO,
         repo_type=REPO_TYPE,
-        token=HF_TOKEN,
+        token=DATASET_HF_TOKEN,
     )
 
 
@@ -55,7 +55,7 @@ def delete_remote_file(remote_path):
         path_in_repo=remote_path,
         repo_id=DATA_REPO,
         repo_type=REPO_TYPE,
-        token=HF_TOKEN,
+        token=DATASET_HF_TOKEN,
     )
 
 
@@ -68,7 +68,7 @@ def download_dir(remote_prefix):
         repo_type=REPO_TYPE,
         allow_patterns=f"{remote_prefix}/**",
         local_dir=str(LOCAL_DATA),
-        token=HF_TOKEN,
+        token=DATASET_HF_TOKEN,
     )
 
 
