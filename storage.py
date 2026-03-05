@@ -89,6 +89,18 @@ def parse_filename(filename):
     return {"id": parts[0], "category": parts[1], "type": parts[2]}
 
 
+def make_result_filename(portrait_id, garment_id, category):
+    return f"{portrait_id}_{garment_id}_{category}_result.jpg"
+
+
+def parse_result_filename(filename):
+    stem = Path(filename).stem
+    parts = stem.rsplit("_", 3)
+    if len(parts) != 4 or parts[3] != "result":
+        return None
+    return {"portrait_id": parts[0], "garment_id": parts[1], "category": parts[2]}
+
+
 def list_local_images(directory):
     d = Path(directory)
     if not d.exists():
@@ -210,7 +222,7 @@ def save_image_set(prefix, img_portrait, img_garment, category, img_result=None)
 
     result_path = None
     if img_result is not None:
-        result_name = make_filename(item_id, category, "result")
+        result_name = make_result_filename(item_id, item_id, category)
         result_path = local_prefix / "results" / result_name
         save_image(img_result, result_path)
         upload_image(result_path, f"{prefix}/results/{result_name}")
@@ -218,10 +230,10 @@ def save_image_set(prefix, img_portrait, img_garment, category, img_result=None)
     return item_id, str(portrait_path), str(garment_path), str(result_path) if result_path else None
 
 
-def save_result(prefix, item_id, category, img_result):
-    """Save a result image for an existing image set."""
+def save_result(prefix, portrait_id, garment_id, category, img_result):
+    """Save a result image encoding both portrait and garment IDs."""
     local_prefix = LOCAL_DATA / prefix
-    result_name = make_filename(item_id, category, "result")
+    result_name = make_result_filename(portrait_id, garment_id, category)
     result_path = local_prefix / "results" / result_name
     save_image(img_result, result_path)
     upload_image(result_path, f"{prefix}/results/{result_name}")

@@ -16,6 +16,7 @@ from storage import (
     make_filename,
     generate_id,
     parse_filename,
+    parse_result_filename,
     file_url,
     LOCAL_DATA,
 )
@@ -47,14 +48,14 @@ def build_demo(process_fn):
             raise gr.Error("Please select a portrait and a garment.")
         result = process_fn(portrait_path, garment_path, category)
         if result and portrait_path and garment_path:
-            for p in [portrait_path, garment_path]:
-                local = Path(p)
-                if local.exists() and str(local).startswith(str(LOCAL_DATA)):
-                    remote = str(local.relative_to(LOCAL_DATA))
-                    upload_image(local, remote)
-            parsed = parse_filename(Path(portrait_path).name)
-            if parsed:
-                save_result(UPLOADS_PREFIX, parsed["id"], category, result)
+            p_parsed = parse_filename(Path(portrait_path).name)
+            g_parsed = parse_filename(Path(garment_path).name)
+            if p_parsed and g_parsed:
+                for p in [portrait_path, garment_path]:
+                    local = Path(p)
+                    if local.exists() and str(local).startswith(str(LOCAL_DATA)):
+                        upload_image(local, str(local.relative_to(LOCAL_DATA)))
+                save_result(UPLOADS_PREFIX, p_parsed["id"], g_parsed["id"], category, result)
         return result
 
     with gr.Blocks(title="Multi-Person Virtual Try-On") as demo:
@@ -355,16 +356,20 @@ def build_demo(process_fn):
                 def on_result_select(evt: gr.SelectData):
                     path = evt.value["image"]["path"]
                     result_local = download_to_local(path)
-                    parsed = parse_filename(Path(result_local).name)
+                    parsed = parse_result_filename(Path(result_local).name)
                     if not parsed:
-                        parsed = parse_filename(Path(path).name)
+                        parsed = parse_result_filename(Path(path).name)
                     if not parsed:
-                        return result_local, None, None, "tops", None, None, result_local
-                    item_id, cat = parsed["id"], parsed["category"]
-                    portrait_url = file_url(f"{UPLOADS_PREFIX}/portraits/{make_filename(item_id, cat, 'portrait')}")
-                    garment_url = file_url(f"{UPLOADS_PREFIX}/garments/{make_filename(item_id, cat, 'garment')}")
-                    portrait_local = download_to_local(portrait_url)
-                    garment_local = download_to_local(garment_url)
+                        return None, None, result_local, "tops", None, None, result_local
+                    cat = parsed["category"]
+                    try:
+                        portrait_url = file_url(f"{UPLOADS_PREFIX}/portraits/{make_filename(parsed['portrait_id'], cat, 'portrait')}")
+                        garment_url = file_url(f"{UPLOADS_PREFIX}/garments/{make_filename(parsed['garment_id'], cat, 'garment')}")
+                        portrait_local = download_to_local(portrait_url)
+                        garment_local = download_to_local(garment_url)
+                    except Exception:
+                        gr.Warning("Matching portrait/garment not found in dataset.")
+                        return None, None, result_local, cat, None, None, result_local
                     return portrait_local, garment_local, result_local, cat, portrait_local, garment_local, result_local
 
                 promo_result_gallery.select(
