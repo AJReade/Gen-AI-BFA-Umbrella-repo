@@ -17,12 +17,11 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          pip install huggingface_hub[hf_xet]
+          curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/huggingface/xet-core/refs/heads/main/git_xet/install.sh | sh
           export PATH="$HOME/.local/bin:$PATH"
-          huggingface-cli login --token $HF_TOKEN
+          git xet install
           git config user.email "deploy@github.com"
           git config user.name "Deploy Bot"
-          git xet install
           git checkout --orphan hf-clean
           git add -A
           git commit -m "deploy"
