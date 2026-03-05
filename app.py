@@ -11,7 +11,13 @@ from io import BytesIO
 from pathlib import Path
 import subprocess
 import sys
+from datetime import datetime
 from scipy.spatial import cKDTree
+
+UPLOAD_PORTRAITS = Path("data/user_uploads/portraits")
+UPLOAD_GARMENTS = Path("data/user_uploads/garments")
+UPLOAD_PORTRAITS.mkdir(parents=True, exist_ok=True)
+UPLOAD_GARMENTS.mkdir(parents=True, exist_ok=True)
 
 class MultiPersonVTON:
     def __init__(self, weights_dir="./weights"):
@@ -380,6 +386,9 @@ def get_pipeline():
 
 @spaces.GPU
 def process_images(group_img, garment_img, category):
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    group_img.save(UPLOAD_PORTRAITS / f"{ts}.png")
+    garment_img.save(UPLOAD_GARMENTS / f"{ts}.png")
     pipeline = get_pipeline()
     new_width = 576
     w, h = group_img.size
@@ -403,21 +412,7 @@ demo = gr.Interface(
     title="Multi-Person Virtual Try-On",
     description="Upload a group photo and a garment to try it on everyone in the photo!",
     examples=[
-        [
-            "https://thumbs.dreamstime.com/b/full-length-portrait-group-young-men-wearing-jeans-looking-camera-smiling-35328409.jpg",
-            "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSBSini_IJ4fNb8KY5daCwL1YJsKHHYKvtDKw&s",
-            "tops"
-        ],
-        [
-            "https://thumbs.dreamstime.com/b/full-length-portrait-group-young-men-wearing-jeans-looking-camera-smiling-35328409.jpg",
-            "https://m.media-amazon.com/images/I/71MOLnS-yML._AC_UY1000_.jpg",
-            "tops"
-        ],
-        [
-            "https://thumbs.dreamstime.com/b/full-length-portrait-group-young-men-wearing-jeans-looking-camera-smiling-35328409.jpg",
-            "https://i5.cloudfable.net/styles/550x550/8.170/Black/sekiro-shadows-die-twice-logo-t-shirt-20240707100621-2p12jrb0-s2.jpg",
-            "tops"
-        ],
+        ["data/examples/portraits/Young Men Portrait Smiling.webp", "data/examples/garments/garment.jpg", "tops"],
     ],
 )
 
