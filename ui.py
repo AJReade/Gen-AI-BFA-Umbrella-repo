@@ -6,7 +6,11 @@ from storage import (
     save_image_set,
     save_result,
     delete_image_set,
+    promote_to_example,
     list_local_images,
+    list_gallery_urls,
+    download_to_local,
+    is_dataset_url,
     save_image,
     upload_image,
     make_filename,
@@ -32,7 +36,7 @@ def _load_uploads():
 
 
 def _gallery_images(prefix, subdir):
-    return list_local_images(LOCAL_DATA / prefix / subdir)
+    return list_gallery_urls(prefix, subdir)
 
 
 def build_demo(process_fn):
@@ -63,25 +67,31 @@ def build_demo(process_fn):
                         gr.Markdown("### Portraits")
                         portrait_gallery = gr.Gallery(
                             value=_gallery_images(UPLOADS_PREFIX, "portraits"),
-                            label="Your Portraits",
+                            label="Uploaded Portraits",
                             columns=4,
                             height=200,
                             allow_preview=False,
                         )
                         with gr.Accordion("Upload new portrait", open=False):
                             portrait_upload = gr.Image(type="pil", label="Upload Portrait")
+                            with gr.Row():
+                                portrait_url_input = gr.Textbox(label="Or paste image URL", scale=4)
+                                portrait_url_btn = gr.Button("Load", size="sm", scale=1)
 
                     with gr.Column():
                         gr.Markdown("### Garments")
                         garment_gallery = gr.Gallery(
                             value=_gallery_images(UPLOADS_PREFIX, "garments"),
-                            label="Your Garments",
+                            label="Uploaded Garments",
                             columns=4,
                             height=200,
                             allow_preview=False,
                         )
                         with gr.Accordion("Upload new garment", open=False):
                             garment_upload = gr.Image(type="pil", label="Upload Garment")
+                            with gr.Row():
+                                garment_url_input = gr.Textbox(label="Or paste image URL", scale=4)
+                                garment_url_btn = gr.Button("Load", size="sm", scale=1)
 
                 gr.Markdown("### Selected")
                 with gr.Row():
@@ -125,7 +135,8 @@ def build_demo(process_fn):
 
                 def on_gallery_select(evt: gr.SelectData):
                     path = evt.value["image"]["path"]
-                    return path, path
+                    local_path = download_to_local(path)
+                    return local_path, local_path
 
                 portrait_gallery.select(on_gallery_select, outputs=[selected_portrait, preview_portrait])
                 garment_gallery.select(on_gallery_select, outputs=[selected_garment, preview_garment])
@@ -154,6 +165,34 @@ def build_demo(process_fn):
                     path = str(local_path)
                     return _gallery_images(UPLOADS_PREFIX, "garments"), path, path, None
 
+                def on_portrait_url(url, current_category):
+                    if not url or not url.strip():
+                        return _gallery_images(UPLOADS_PREFIX, "portraits"), None, None, ""
+                    local_path = download_to_local(url.strip())
+                    if not is_dataset_url(url.strip()):
+                        from PIL import Image as PILImage
+                        item_id = generate_id()
+                        fname = make_filename(item_id, current_category, "portrait")
+                        dest = LOCAL_DATA / UPLOADS_PREFIX / "portraits" / fname
+                        save_image(PILImage.open(local_path), dest)
+                        upload_image(dest, f"{UPLOADS_PREFIX}/portraits/{fname}")
+                        local_path = str(dest)
+                    return _gallery_images(UPLOADS_PREFIX, "portraits"), local_path, local_path, ""
+
+                def on_garment_url(url, current_category):
+                    if not url or not url.strip():
+                        return _gallery_images(UPLOADS_PREFIX, "garments"), None, None, ""
+                    local_path = download_to_local(url.strip())
+                    if not is_dataset_url(url.strip()):
+                        from PIL import Image as PILImage
+                        item_id = generate_id()
+                        fname = make_filename(item_id, current_category, "garment")
+                        dest = LOCAL_DATA / UPLOADS_PREFIX / "garments" / fname
+                        save_image(PILImage.open(local_path), dest)
+                        upload_image(dest, f"{UPLOADS_PREFIX}/garments/{fname}")
+                        local_path = str(dest)
+                    return _gallery_images(UPLOADS_PREFIX, "garments"), local_path, local_path, ""
+
                 portrait_upload.change(
                     on_portrait_upload,
                     inputs=[portrait_upload, category],
@@ -163,6 +202,16 @@ def build_demo(process_fn):
                     on_garment_upload,
                     inputs=[garment_upload, category],
                     outputs=[garment_gallery, selected_garment, preview_garment, garment_upload],
+                )
+                portrait_url_btn.click(
+                    on_portrait_url,
+                    inputs=[portrait_url_input, category],
+                    outputs=[portrait_gallery, selected_portrait, preview_portrait, portrait_url_input],
+                )
+                garment_url_btn.click(
+                    on_garment_url,
+                    inputs=[garment_url_input, category],
+                    outputs=[garment_gallery, selected_garment, preview_garment, garment_url_input],
                 )
 
                 submit_btn.click(
@@ -254,6 +303,86 @@ def build_demo(process_fn):
                     inputs=[delete_id, delete_category],
                     outputs=[admin_status, admin_examples_table],
                 )
+
+                # ---- Promote from Uploads ----
+                gr.Markdown("---")
+                gr.Markdown("## Promote from Uploads")
+                gr.Markdown("Select an existing upload to showcase as an example.")
+
+                promote_portrait = gr.State(value=None)
+                promote_garment = gr.State(value=None)
+                promote_result = gr.State(value=None)
+
+                with gr.Row():
+                    promo_portrait_gallery = gr.Gallery(
+                        value=_gallery_images(UPLOADS_PREFIX, "portraits"),
+                        label="Uploaded Portraits",
+                        columns=4,
+                        height=200,
+                        allow_preview=False,
+                    )
+                    promo_garment_gallery = gr.Gallery(
+                        value=_gallery_images(UPLOADS_PREFIX, "garments"),
+                        label="Uploaded Garments",
+                        columns=4,
+                        height=200,
+                        allow_preview=False,
+                    )
+                    promo_result_gallery = gr.Gallery(
+                        value=_gallery_images(UPLOADS_PREFIX, "results"),
+                        label="Uploaded Results",
+                        columns=4,
+                        height=200,
+                        allow_preview=False,
+                    )
+
+                with gr.Row():
+                    promo_preview_portrait = gr.Image(label="Selected Portrait", interactive=False, height=150)
+                    promo_preview_garment = gr.Image(label="Selected Garment", interactive=False, height=150)
+                    promo_preview_result = gr.Image(label="Selected Result", interactive=False, height=150)
+
+                promote_category = gr.Radio(
+                    choices=["tops", "bottoms", "one-pieces"],
+                    value="tops",
+                    label="Category",
+                )
+                promote_btn = gr.Button("Promote to Example", variant="primary")
+                promote_status = gr.Textbox(label="Status", interactive=False)
+
+                def on_promo_select(evt: gr.SelectData):
+                    path = evt.value["image"]["path"]
+                    local_path = download_to_local(path)
+                    return local_path, local_path
+
+                promo_portrait_gallery.select(on_promo_select, outputs=[promote_portrait, promo_preview_portrait])
+                promo_garment_gallery.select(on_promo_select, outputs=[promote_garment, promo_preview_garment])
+                promo_result_gallery.select(on_promo_select, outputs=[promote_result, promo_preview_result])
+
+                def on_promote(portrait_path, garment_path, result_path, cat):
+                    if not portrait_path or not garment_path:
+                        return "Select at least a portrait and garment.", get_examples_table()
+                    item_id = promote_to_example(portrait_path, garment_path, cat, result_path)
+                    return f"Promoted as example {item_id}.", get_examples_table()
+
+                promote_btn.click(
+                    on_promote,
+                    inputs=[promote_portrait, promote_garment, promote_result, promote_category],
+                    outputs=[promote_status, admin_examples_table],
+                )
+
+                def refresh_promo_galleries():
+                    return (
+                        _gallery_images(UPLOADS_PREFIX, "portraits"),
+                        _gallery_images(UPLOADS_PREFIX, "garments"),
+                        _gallery_images(UPLOADS_PREFIX, "results"),
+                    )
+
+                refresh_promo_btn = gr.Button("Refresh Uploads", size="sm")
+                refresh_promo_btn.click(
+                    refresh_promo_galleries,
+                    outputs=[promo_portrait_gallery, promo_garment_gallery, promo_result_gallery],
+                )
+
                 demo.load(get_examples_table, outputs=[admin_examples_table])
 
     return demo

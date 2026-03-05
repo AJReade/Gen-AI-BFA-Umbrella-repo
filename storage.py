@@ -1,5 +1,6 @@
 import os
 import uuid
+import shutil
 from pathlib import Path
 from PIL import Image
 import numpy as np
@@ -95,6 +96,69 @@ def list_local_images(directory):
     return sorted([str(p) for p in d.iterdir() if p.suffix.lower() in IMG_EXTS])
 
 
+def file_url(remote_path):
+    """Return a direct HF URL for a file in the dataset repo (public repo)."""
+    return f"https://huggingface.co/datasets/{DATA_REPO}/resolve/main/{remote_path}"
+
+
+def list_gallery_urls(prefix, subdir):
+    """List files in dataset repo and return direct URLs for gallery display."""
+    if not is_remote():
+        return list_local_images(LOCAL_DATA / prefix / subdir)
+    try:
+        items = _api().list_repo_tree(
+            DATA_REPO, repo_type=REPO_TYPE, path_in_repo=f"{prefix}/{subdir}"
+        )
+        urls = []
+        for item in items:
+            if hasattr(item, "rfilename"):
+                name = item.rfilename
+            elif hasattr(item, "path"):
+                name = item.path
+            else:
+                continue
+            if Path(name).suffix.lower() in IMG_EXTS:
+                urls.append(file_url(name))
+        return sorted(urls)
+    except Exception:
+        return list_local_images(LOCAL_DATA / prefix / subdir)
+
+
+HF_URL_PREFIX = f"https://huggingface.co/datasets/{DATA_REPO}/resolve/main/"
+
+
+def is_dataset_url(url):
+    """Check if a URL points to our HF dataset repo."""
+    return isinstance(url, str) and url.startswith(HF_URL_PREFIX)
+
+
+def download_to_local(path_or_url):
+    """Download a URL to local path. HF dataset URLs use hf_hub, other URLs use requests."""
+    if not isinstance(path_or_url, str):
+        return path_or_url
+    if is_dataset_url(path_or_url):
+        remote_path = path_or_url[len(HF_URL_PREFIX):]
+        from huggingface_hub import hf_hub_download
+        local = hf_hub_download(
+            repo_id=DATA_REPO,
+            repo_type=REPO_TYPE,
+            filename=remote_path,
+            token=DATASET_HF_TOKEN,
+        )
+        return local
+    if path_or_url.startswith(("http://", "https://")):
+        import requests
+        from io import BytesIO
+        resp = requests.get(path_or_url, timeout=30)
+        resp.raise_for_status()
+        img = Image.open(BytesIO(resp.content))
+        tmp_path = LOCAL_DATA / "tmp" / f"{generate_id()}.jpg"
+        tmp_path.parent.mkdir(parents=True, exist_ok=True)
+        save_image(img, tmp_path)
+        return str(tmp_path)
+    return path_or_url
+
+
 def load_image_sets(prefix):
     """Scan {prefix}/portraits/ dir, parse filenames, return list of dicts with matched files."""
     local_prefix = LOCAL_DATA / prefix
@@ -177,3 +241,20 @@ def delete_image_set(prefix, item_id, category):
                 delete_remote_file(f"{prefix}/{subdir}/{key}_{item_type}.jpg")
             except Exception:
                 pass
+
+
+def promote_to_example(portrait_path, garment_path, category, result_path=None):
+    """Copy user upload files to examples with a new ID."""
+    item_id = generate_id()
+    for src_path, item_type in [(portrait_path, "portrait"), (garment_path, "garment"), (result_path, "result")]:
+        if src_path is None:
+            continue
+        src = Path(src_path)
+        if not src.exists():
+            continue
+        fname = make_filename(item_id, category, item_type)
+        dest = LOCAL_DATA / "examples" / f"{item_type}s" / fname
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(src), str(dest))
+        upload_image(dest, f"examples/{item_type}s/{fname}")
+    return item_id
