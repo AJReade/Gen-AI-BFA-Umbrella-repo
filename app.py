@@ -387,8 +387,8 @@ def get_pipeline():
 @spaces.GPU
 def process_images(group_img, garment_img, category):
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    group_img.save(UPLOAD_PORTRAITS / f"{ts}.png")
-    garment_img.save(UPLOAD_GARMENTS / f"{ts}.png")
+    group_img.save(UPLOAD_PORTRAITS / f"{ts}.jpg", "JPEG", quality=85)
+    garment_img.save(UPLOAD_GARMENTS / f"{ts}.jpg", "JPEG", quality=85)
     pipeline = get_pipeline()
     new_width = 576
     w, h = group_img.size
