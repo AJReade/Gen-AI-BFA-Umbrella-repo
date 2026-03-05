@@ -16,6 +16,9 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          pip install huggingface_hub[hf_xet]
-          export PATH="$HOME/.local/bin:$PATH"
-          huggingface-cli upload mvp-lab/VTON_TEST . . --repo-type space
+          git config user.email "ci@github.com"
+          git config user.name "CI"
+          git checkout --orphan hf-clean
+          git add -A
+          git commit -m "deploy"
+          git push https://mvp-lab:$HF_TOKEN@huggingface.co/spaces/mvp-lab/VTON_TEST hf-clean:main -f

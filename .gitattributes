@@ -1,6 +1,0 @@
-*.jpg filter=xet diff=xet merge=xet -text
-*.jpeg filter=xet diff=xet merge=xet -text
-*.png filter=xet diff=xet merge=xet -text
-*.webp filter=xet diff=xet merge=xet -text
-*.gif filter=xet diff=xet merge=xet -text
-*.bmp filter=xet diff=xet merge=xet -text

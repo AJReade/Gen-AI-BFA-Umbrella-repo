@@ -1,0 +1,7 @@
+data/examples/portraits/
+data/examples/garments/
+data/examples/results/
+data/user_uploads/
+__pycache__/
+*.pyc
+.venv/
