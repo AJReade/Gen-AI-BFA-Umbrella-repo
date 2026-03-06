@@ -2,13 +2,9 @@ import gradio as gr
 from PIL import Image
 from pathlib import Path
 from storage import (
-    load_image_sets,
-    save_image_set,
     save_multi_result,
-    save_result,
     delete_image_set,
     promote_to_example,
-    list_local_images,
     list_gallery_urls,
     download_to_local,
     is_dataset_url,
@@ -29,10 +25,6 @@ UPLOADS_PREFIX = "user_uploads"
 for subdir in ["portraits", "garments", "results"]:
     (LOCAL_DATA / EXAMPLES_PREFIX / subdir).mkdir(parents=True, exist_ok=True)
     (LOCAL_DATA / UPLOADS_PREFIX / subdir).mkdir(parents=True, exist_ok=True)
-
-
-def _load_uploads():
-    return load_image_sets(UPLOADS_PREFIX)
 
 
 def _gallery_images(prefix, subdir):
@@ -344,7 +336,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     result_urls = _gallery_images(EXAMPLES_PREFIX, "results")
                     sets = []
                     for r in result_urls:
-                        portrait, garments, result = _resolve_result_images(EXAMPLES_PREFIX, r)
+                        portrait, garments, result = _resolve_result_images(UPLOADS_PREFIX, r)
                         if portrait and garments:
                             sets.append({"portrait": portrait, "garments": garments, "result": result})
                     return sets
@@ -360,24 +352,8 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
 
             # ---- Admin Tab ----
             with gr.Tab("Admin - Manage Examples"):
-                gr.Markdown("## Upload Example Set")
-                gr.Markdown("Upload a portrait, garment, and result image together as an example.")
-
-                with gr.Row():
-                    with gr.Column():
-                        admin_portrait = gr.Image(type="pil", label="Portrait", sources=["upload", "webcam"])
-                        admin_portrait_url = gr.Textbox(label="Or paste URL")
-                    with gr.Column():
-                        admin_garment = gr.Image(type="pil", label="Garment", sources=["upload", "webcam"])
-                        admin_garment_url = gr.Textbox(label="Or paste URL")
-                    with gr.Column():
-                        admin_result = gr.Image(type="pil", label="Result", sources=["upload", "webcam"])
-                        admin_result_url = gr.Textbox(label="Or paste URL")
-
-                admin_upload_btn = gr.Button("Add Example", variant="primary")
                 admin_status = gr.Textbox(label="Status", interactive=False)
 
-                gr.Markdown("---")
                 gr.Markdown("### Current Examples")
                 admin_examples_table = gr.Dataframe(
                     headers=["ID", "Result Filename"],
@@ -399,35 +375,12 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                         rows.append([rid, fname])
                     return rows
 
-                def _resolve_image(img, url):
-                    if img is not None:
-                        return img
-                    if url and url.strip():
-                        local = download_to_local(url.strip())
-                        return Image.open(local)
-                    return None
-
-                def on_admin_upload(portrait, garment, result, p_url, g_url, r_url):
-                    portrait = _resolve_image(portrait, p_url)
-                    garment = _resolve_image(garment, g_url)
-                    result = _resolve_image(result, r_url)
-                    if portrait is None or garment is None:
-                        return "Please provide at least portrait and garment (file or URL).", get_examples_table()
-                    save_image_set(EXAMPLES_PREFIX, portrait, garment, result)
-                    return "Example added.", get_examples_table()
-
                 def on_admin_delete(ex_id):
                     if not ex_id:
                         return "Please provide an ID.", get_examples_table()
                     delete_image_set(EXAMPLES_PREFIX, ex_id.strip())
                     return "Deleted.", get_examples_table()
 
-                admin_upload_btn.click(
-                    on_admin_upload,
-                    inputs=[admin_portrait, admin_garment, admin_result,
-                            admin_portrait_url, admin_garment_url, admin_result_url],
-                    outputs=[admin_status, admin_examples_table],
-                )
                 delete_btn.click(
                     on_admin_delete,
                     inputs=[delete_id],
@@ -509,10 +462,10 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                 )
 
                 def on_promote(portrait_path, garment_paths, result_path):
-                    if not portrait_path or not garment_paths:
-                        return "Could not find matching portrait/garment.", get_examples_table()
-                    item_id = promote_to_example(portrait_path, garment_paths, result_path)
-                    return f"Promoted as example {item_id} ({len(garment_paths)} garment(s)).", get_examples_table()
+                    if not result_path:
+                        return "No result to promote.", get_examples_table()
+                    name = promote_to_example(result_path)
+                    return f"Promoted: {name}", get_examples_table()
 
                 promote_btn.click(
                     on_promote,

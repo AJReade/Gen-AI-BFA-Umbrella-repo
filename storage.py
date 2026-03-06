@@ -293,42 +293,11 @@ def delete_image_set(prefix, item_id):
                         pass
 
 
-def promote_to_example(portrait_path, garment_paths, result_path=None):
-    """Copy user upload files to examples with a new ID.
-
-    garment_paths can be a single path (str) or a list of paths.
-    """
-    item_id = generate_id()
-    if isinstance(garment_paths, str):
-        garment_paths = [garment_paths]
-    # Portrait
-    if portrait_path:
-        src = Path(portrait_path)
-        if src.exists():
-            fname = make_filename(item_id, "portrait")
-            dest = LOCAL_DATA / "examples" / "portraits" / fname
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(str(src), str(dest))
-            upload_image(dest, f"examples/portraits/{fname}")
-    # Garments
-    for i, gpath in enumerate(garment_paths):
-        if not gpath:
-            continue
-        src = Path(gpath)
-        if not src.exists():
-            continue
-        gid = f"{item_id}g{i}" if len(garment_paths) > 1 else item_id
-        fname = make_filename(gid, "garment")
-        dest = LOCAL_DATA / "examples" / "garments" / fname
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(str(src), str(dest))
-        upload_image(dest, f"examples/garments/{fname}")
-    # Result — preserve original filename for resolution
-    if result_path:
-        src = Path(result_path)
-        if src.exists():
-            dest = LOCAL_DATA / "examples" / "results" / src.name
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(str(src), str(dest))
-            upload_image(dest, f"examples/results/{src.name}")
-    return item_id
+def promote_to_example(result_path):
+    """Copy a result file to examples, preserving its filename for resolution."""
+    src = Path(result_path)
+    dest = LOCAL_DATA / "examples" / "results" / src.name
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(str(src), str(dest))
+    upload_image(dest, f"examples/results/{src.name}")
+    return src.stem
