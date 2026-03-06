@@ -82,7 +82,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                 num_detected = gr.State(value=0)
                 garment_counter = gr.State(value=0)
 
-                # Portrait section
+                gr.Markdown("**Step 1:** Select or upload a portrait, and select or upload garments to the pool.")
                 with gr.Row():
                     with gr.Column():
                         gr.Markdown("### Portrait")
@@ -123,7 +123,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                         )
                         clear_pool_btn = gr.Button("Clear Pool", size="sm", variant="stop")
 
-                # Detection section
+                gr.Markdown("**Step 2:** Detect people in the portrait. This lets you choose which garment goes on each person.")
                 detect_btn = gr.Button("Detect People", variant="secondary")
                 detect_status = gr.Textbox(interactive=False, show_label=False, value="")
                 people_gallery = gr.Gallery(
@@ -133,7 +133,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     allow_preview=False,
                 )
 
-                # Per-person assignment panel (dynamically rendered)
+                gr.Markdown("**Step 3:** Assign garments to each person, then click Try On.")
                 @gr.render(inputs=[num_detected, garment_pool])
                 def render_assignments(n_detected, pool):
                     n = n_detected or 0
