@@ -312,18 +312,43 @@ def delete_image_set(prefix, item_id, category):
                 pass
 
 
-def promote_to_example(portrait_path, garment_path, category, result_path=None):
-    """Copy user upload files to examples with a new ID."""
+def promote_to_example(portrait_path, garment_paths, category, result_path=None):
+    """Copy user upload files to examples with a new ID.
+
+    garment_paths can be a single path (str) or a list of paths.
+    """
     item_id = generate_id()
-    for src_path, item_type in [(portrait_path, "portrait"), (garment_path, "garment"), (result_path, "result")]:
-        if src_path is None:
+    if isinstance(garment_paths, str):
+        garment_paths = [garment_paths]
+    # Portrait
+    if portrait_path:
+        src = Path(portrait_path)
+        if src.exists():
+            fname = make_filename(item_id, category, "portrait")
+            dest = LOCAL_DATA / "examples" / "portraits" / fname
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(src), str(dest))
+            upload_image(dest, f"examples/portraits/{fname}")
+    # Garments
+    for i, gpath in enumerate(garment_paths):
+        if not gpath:
             continue
-        src = Path(src_path)
+        src = Path(gpath)
         if not src.exists():
             continue
-        fname = make_filename(item_id, category, item_type)
-        dest = LOCAL_DATA / "examples" / f"{item_type}s" / fname
+        gid = f"{item_id}g{i}" if len(garment_paths) > 1 else item_id
+        fname = make_filename(gid, category, "garment")
+        dest = LOCAL_DATA / "examples" / "garments" / fname
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(src), str(dest))
-        upload_image(dest, f"examples/{item_type}s/{fname}")
+        upload_image(dest, f"examples/garments/{fname}")
+    # Result
+    if result_path:
+        src = Path(result_path)
+        if src.exists():
+            fname = make_filename(item_id, category, "result")
+            dest = LOCAL_DATA / "examples" / "results" / fname
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(str(src), str(dest))
+            upload_image(dest, f"examples/results/{fname}")
     return item_id

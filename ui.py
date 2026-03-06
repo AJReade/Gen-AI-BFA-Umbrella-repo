@@ -61,7 +61,12 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                 local = Path(portrait_path)
                 if local.exists() and str(local).startswith(str(LOCAL_DATA)):
                     upload_image(local, str(local.relative_to(LOCAL_DATA)))
-                # Upload garments and build assignment metadata for filename
+                # Upload all garments in pool
+                for g in garment_pool:
+                    garment_local = Path(g["path"])
+                    if garment_local.exists() and str(garment_local).startswith(str(LOCAL_DATA)):
+                        upload_image(garment_local, str(garment_local.relative_to(LOCAL_DATA)))
+                # Build assignment metadata for filename
                 n = num_detected if num_detected else 0
                 max_p = len(assignment_args) // 2
                 pool_by_label = {g["label"]: g for g in garment_pool}
@@ -74,9 +79,6 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     else:
                         g = pool_by_label[dd_val]
                         g_parsed = parse_filename(Path(g["path"]).name)
-                        garment_local = Path(g["path"])
-                        if garment_local.exists() and str(garment_local).startswith(str(LOCAL_DATA)):
-                            upload_image(garment_local, str(garment_local.relative_to(LOCAL_DATA)))
                         garment_id = g_parsed["id"] if g_parsed else generate_id()
                         file_assignments.append({"garment_id": garment_id, "category": cat_val or "tops"})
                 save_multi_result(UPLOADS_PREFIX, p_parsed["id"], file_assignments, result)
@@ -252,6 +254,21 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     inputs=[garment_pool, garment_counter],
                     outputs=[garment_pool, garment_counter, garment_pool_gallery],
                 )
+
+                def on_example_result_select(evt: gr.SelectData):
+                    path = evt.value["image"]["path"]
+                    portrait_local, garment_locals, result_local, cat = _resolve_result_images(EXAMPLES_PREFIX, path)
+                    if not portrait_local or not garment_locals:
+                        gr.Warning("Could not resolve example images.")
+                        return None, None, [], 0, []
+                    pool = [{"path": g, "label": f"Garment {i+1}"} for i, g in enumerate(garment_locals)]
+                    pool_images = [g["path"] for g in pool]
+                    return portrait_local, portrait_local, pool, len(pool), pool_images
+
+                ex_result_gallery.select(
+                    on_example_result_select,
+                    outputs=[selected_portrait, preview_portrait, garment_pool, garment_counter, garment_pool_gallery],
+                ).then(reset_detection, outputs=detection_reset_outputs)
 
                 clear_pool_btn.click(
                     clear_pool,
@@ -463,7 +480,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                 gr.Markdown("Select a result to promote. The matching portrait and garment are found automatically.")
 
                 promote_portrait = gr.State(value=None)
-                promote_garment = gr.State(value=None)
+                promote_garments = gr.State(value=[])
                 promote_result = gr.State(value=None)
                 promote_category = gr.State(value="tops")
 
@@ -477,28 +494,26 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
 
                 with gr.Row():
                     promo_preview_portrait = gr.Image(label="Portrait", interactive=False, height=150)
-                    promo_preview_garment = gr.Image(label="Garment", interactive=False, height=150)
+                    promo_preview_garments = gr.Gallery(label="Garments", columns=4, height=150, allow_preview=False)
                     promo_preview_result = gr.Image(label="Result", interactive=False, height=150)
 
                 promote_btn = gr.Button("Promote to Example", variant="primary")
                 promote_status = gr.Textbox(label="Status", interactive=False)
 
-                def on_result_select(evt: gr.SelectData):
-                    path = evt.value["image"]["path"]
+                def _resolve_result_images(prefix, path):
+                    """Parse a result filename and resolve portrait + all garments."""
                     result_local = download_to_local(path)
                     fname = Path(result_local).name
-                    # Try old single-garment format first
+                    # Try old single-garment format
                     parsed = parse_result_filename(fname)
                     if not parsed:
                         parsed = parse_result_filename(Path(path).name)
                     if parsed:
                         cat = parsed["category"]
                         try:
-                            portrait_url = file_url(f"{UPLOADS_PREFIX}/portraits/{make_filename(parsed['portrait_id'], cat, 'portrait')}")
-                            garment_url = file_url(f"{UPLOADS_PREFIX}/garments/{make_filename(parsed['garment_id'], cat, 'garment')}")
-                            portrait_local = download_to_local(portrait_url)
-                            garment_local = download_to_local(garment_url)
-                            return portrait_local, garment_local, result_local, cat, portrait_local, garment_local, result_local
+                            p_url = file_url(f"{prefix}/portraits/{make_filename(parsed['portrait_id'], cat, 'portrait')}")
+                            g_url = file_url(f"{prefix}/garments/{make_filename(parsed['garment_id'], cat, 'garment')}")
+                            return download_to_local(p_url), [download_to_local(g_url)], result_local, cat
                         except Exception:
                             pass
                     # Try multi-garment format
@@ -506,36 +521,43 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     if not multi:
                         multi = parse_multi_result_filename(Path(path).name)
                     if multi:
-                        # Find first non-None assignment for promote
-                        first_assignment = next((a for a in multi["assignments"] if a is not None), None)
-                        if first_assignment:
-                            cat = first_assignment["category"]
+                        assignments = [a for a in multi["assignments"] if a is not None]
+                        if assignments:
+                            cat = assignments[0]["category"]
                             try:
-                                portrait_url = file_url(f"{UPLOADS_PREFIX}/portraits/{make_filename(multi['portrait_id'], cat, 'portrait')}")
-                                garment_url = file_url(f"{UPLOADS_PREFIX}/garments/{make_filename(first_assignment['garment_id'], cat, 'garment')}")
-                                portrait_local = download_to_local(portrait_url)
-                                garment_local = download_to_local(garment_url)
-                                return portrait_local, garment_local, result_local, cat, portrait_local, garment_local, result_local
+                                p_url = file_url(f"{prefix}/portraits/{make_filename(multi['portrait_id'], cat, 'portrait')}")
+                                portrait_local = download_to_local(p_url)
+                                garment_locals = []
+                                for a in assignments:
+                                    g_url = file_url(f"{prefix}/garments/{make_filename(a['garment_id'], a['category'], 'garment')}")
+                                    garment_locals.append(download_to_local(g_url))
+                                return portrait_local, garment_locals, result_local, cat
                             except Exception:
                                 pass
-                    gr.Warning("Could not find matching portrait/garment.")
-                    return None, None, result_local, "tops", None, None, result_local
+                    return None, [], result_local, "tops"
+
+                def on_result_select(evt: gr.SelectData):
+                    path = evt.value["image"]["path"]
+                    portrait_local, garment_locals, result_local, cat = _resolve_result_images(UPLOADS_PREFIX, path)
+                    if not portrait_local or not garment_locals:
+                        gr.Warning("Could not find matching portrait/garment.")
+                    return portrait_local, garment_locals, result_local, cat, portrait_local, garment_locals, result_local
 
                 promo_result_gallery.select(
                     on_result_select,
-                    outputs=[promote_portrait, promote_garment, promote_result, promote_category,
-                             promo_preview_portrait, promo_preview_garment, promo_preview_result],
+                    outputs=[promote_portrait, promote_garments, promote_result, promote_category,
+                             promo_preview_portrait, promo_preview_garments, promo_preview_result],
                 )
 
-                def on_promote(portrait_path, garment_path, result_path, cat):
-                    if not portrait_path or not garment_path:
+                def on_promote(portrait_path, garment_paths, result_path, cat):
+                    if not portrait_path or not garment_paths:
                         return "Could not find matching portrait/garment.", get_examples_table()
-                    item_id = promote_to_example(portrait_path, garment_path, cat, result_path)
-                    return f"Promoted as example {item_id}.", get_examples_table()
+                    item_id = promote_to_example(portrait_path, garment_paths, cat, result_path)
+                    return f"Promoted as example {item_id} ({len(garment_paths)} garment(s)).", get_examples_table()
 
                 promote_btn.click(
                     on_promote,
-                    inputs=[promote_portrait, promote_garment, promote_result, promote_category],
+                    inputs=[promote_portrait, promote_garments, promote_result, promote_category],
                     outputs=[promote_status, admin_examples_table],
                 )
 
