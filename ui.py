@@ -112,18 +112,16 @@ def build_demo(process_fn, detect_fn=None):
                 )
 
                 detect_btn = gr.Button("Detect People", variant="secondary")
-                detect_status = gr.Textbox(interactive=False, visible=False, show_label=False)
+                detect_status = gr.Textbox(interactive=False, show_label=False, value="")
                 people_gallery = gr.Gallery(
                     label="Detected People",
                     columns=6,
                     height=300,
-                    visible=False,
                     allow_preview=False,
                 )
                 people_selection = gr.CheckboxGroup(
                     label="Select people to dress",
                     choices=[],
-                    visible=False,
                 )
 
                 submit_btn = gr.Button("Try On All", variant="primary")
@@ -162,9 +160,9 @@ def build_demo(process_fn, detect_fn=None):
 
                 def reset_detection():
                     return (
-                        gr.update(visible=False),
-                        gr.update(visible=False),
-                        gr.update(choices=[], value=[], visible=False),
+                        "",
+                        [],
+                        gr.update(choices=[], value=[]),
                         gr.update(value="Try On All"),
                     )
 
@@ -253,13 +251,16 @@ def build_demo(process_fn, detect_fn=None):
                     n = len(people)
                     choices = [f"Person {i+1}" for i in range(n)]
                     return (
-                        gr.update(value=f"Found {n} {'person' if n == 1 else 'people'}", visible=True),
-                        gr.update(value=people, visible=True),
-                        gr.update(choices=choices, value=choices, visible=True),
+                        f"Found {n} {'person' if n == 1 else 'people'}",
+                        people,
+                        gr.update(choices=choices, value=choices),
                         gr.update(value="Try On Selected"),
                     )
 
                 detect_btn.click(
+                    lambda: "Detecting people...",
+                    outputs=[detect_status],
+                ).then(
                     on_detect,
                     inputs=[selected_portrait],
                     outputs=[detect_status, people_gallery, people_selection, submit_btn],
