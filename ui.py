@@ -112,10 +112,11 @@ def build_demo(process_fn, detect_fn=None):
                 )
 
                 detect_btn = gr.Button("Detect People", variant="secondary")
+                detect_status = gr.Textbox(interactive=False, visible=False, show_label=False)
                 people_gallery = gr.Gallery(
                     label="Detected People",
                     columns=6,
-                    height=150,
+                    height=300,
                     visible=False,
                     allow_preview=False,
                 )
@@ -125,7 +126,7 @@ def build_demo(process_fn, detect_fn=None):
                     visible=False,
                 )
 
-                submit_btn = gr.Button("Try On", variant="primary")
+                submit_btn = gr.Button("Try On All", variant="primary")
                 result_image = gr.Image(type="pil", label="Result")
 
                 # Examples section
@@ -159,9 +160,23 @@ def build_demo(process_fn, detect_fn=None):
                     local_path = download_to_local(path)
                     return local_path, local_path
 
-                portrait_gallery.select(on_gallery_select, outputs=[selected_portrait, preview_portrait])
+                def reset_detection():
+                    return (
+                        gr.update(visible=False),
+                        gr.update(visible=False),
+                        gr.update(choices=[], value=[], visible=False),
+                        gr.update(value="Try On All"),
+                    )
+
+                detection_reset_outputs = [detect_status, people_gallery, people_selection, submit_btn]
+
+                portrait_gallery.select(
+                    on_gallery_select, outputs=[selected_portrait, preview_portrait]
+                ).then(reset_detection, outputs=detection_reset_outputs)
                 garment_gallery.select(on_gallery_select, outputs=[selected_garment, preview_garment])
-                ex_portrait_gallery.select(on_gallery_select, outputs=[selected_portrait, preview_portrait])
+                ex_portrait_gallery.select(
+                    on_gallery_select, outputs=[selected_portrait, preview_portrait]
+                ).then(reset_detection, outputs=detection_reset_outputs)
                 ex_garment_gallery.select(on_gallery_select, outputs=[selected_garment, preview_garment])
 
                 def on_portrait_upload(img, current_category):
@@ -214,7 +229,7 @@ def build_demo(process_fn, detect_fn=None):
                     on_portrait_upload,
                     inputs=[portrait_upload, category],
                     outputs=[portrait_gallery, selected_portrait, preview_portrait, portrait_upload],
-                )
+                ).then(reset_detection, outputs=detection_reset_outputs)
                 garment_upload.change(
                     on_garment_upload,
                     inputs=[garment_upload, category],
@@ -224,7 +239,7 @@ def build_demo(process_fn, detect_fn=None):
                     on_portrait_url,
                     inputs=[portrait_url_input, category],
                     outputs=[portrait_gallery, selected_portrait, preview_portrait, portrait_url_input],
-                )
+                ).then(reset_detection, outputs=detection_reset_outputs)
                 garment_url_btn.click(
                     on_garment_url,
                     inputs=[garment_url_input, category],
@@ -238,14 +253,16 @@ def build_demo(process_fn, detect_fn=None):
                     n = len(people)
                     choices = [f"Person {i+1}" for i in range(n)]
                     return (
+                        gr.update(value=f"Found {n} {'person' if n == 1 else 'people'}", visible=True),
                         gr.update(value=people, visible=True),
                         gr.update(choices=choices, value=choices, visible=True),
+                        gr.update(value="Try On Selected"),
                     )
 
                 detect_btn.click(
                     on_detect,
                     inputs=[selected_portrait],
-                    outputs=[people_gallery, people_selection],
+                    outputs=[detect_status, people_gallery, people_selection, submit_btn],
                 )
 
                 submit_btn.click(

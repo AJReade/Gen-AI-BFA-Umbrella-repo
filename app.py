@@ -193,6 +193,13 @@ class MultiPersonVTON:
 
         print("Step 5: Getting masks for VTON results...")
         vton_masks = self.get_vton_masks(vton_people)
+        if selected_indices is None:
+            selected_indices = list(range(len(people)))
+        for i in range(len(vton_masks)):
+            if i not in selected_indices:
+                yolo_mask = (masks[i].astype(np.uint8) * 255)
+                yolo_mask = cv2.GaussianBlur(yolo_mask, (3, 3), 1)
+                vton_masks[i] = yolo_mask
         order, scores = self.estimate_front_to_back_order(vton_masks)
         cleaned_vton_people, cleaned_vton_masks = self.clean_masks(vton_people, vton_masks)
 
