@@ -173,7 +173,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                             cats.append(cat)
 
                     submit_btn = gr.Button("Try On", variant="primary")
-                    result_image = gr.Image(type="pil", label="Result")
+                    result_image = gr.Image(type="pil", label="Result", interactive=False)
 
                     submit_btn.click(
                         process_and_save,

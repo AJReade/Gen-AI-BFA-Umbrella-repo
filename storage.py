@@ -323,13 +323,12 @@ def promote_to_example(portrait_path, garment_paths, result_path=None):
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(src), str(dest))
         upload_image(dest, f"examples/garments/{fname}")
-    # Result
+    # Result — preserve original filename for resolution
     if result_path:
         src = Path(result_path)
         if src.exists():
-            fname = make_filename(item_id, "result")
-            dest = LOCAL_DATA / "examples" / "results" / fname
+            dest = LOCAL_DATA / "examples" / "results" / src.name
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(str(src), str(dest))
-            upload_image(dest, f"examples/results/{fname}")
+            upload_image(dest, f"examples/results/{src.name}")
     return item_id
