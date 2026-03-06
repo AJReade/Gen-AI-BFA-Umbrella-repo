@@ -257,7 +257,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     path = evt.value["image"]["path"]
                     portrait_local, garment_locals, result_local = _resolve_result_images(EXAMPLES_PREFIX, path)
                     if not portrait_local or not garment_locals:
-                        gr.Warning("Could not resolve example images.")
+                        gr.Warning(f"Could not resolve example images for: {Path(path).name}")
                         return None, None, [], 0, []
                     pool = [{"path": g, "label": f"Garment {i+1}"} for i, g in enumerate(garment_locals)]
                     pool_images = [g["path"] for g in pool]
@@ -499,8 +499,8 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                             p_url = file_url(f"{prefix}/portraits/{make_filename(parsed['portrait_id'], 'portrait')}")
                             g_url = file_url(f"{prefix}/garments/{make_filename(parsed['garment_id'], 'garment')}")
                             return download_to_local(p_url), [download_to_local(g_url)], result_local
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            gr.Warning(f"Single-garment resolve failed for {fname}: {e}")
                     # Try multi-garment format
                     multi = parse_multi_result_filename(fname)
                     if not multi:
@@ -516,15 +516,17 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                                     g_url = file_url(f"{prefix}/garments/{make_filename(gid, 'garment')}")
                                     garment_locals.append(download_to_local(g_url))
                                 return portrait_local, garment_locals, result_local
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                gr.Warning(f"Multi-garment resolve failed for {fname} (portrait={multi['portrait_id']}, garments={gids}): {e}")
+                    else:
+                        gr.Warning(f"Could not parse result filename: {fname}")
                     return None, [], result_local
 
                 def on_result_select(evt: gr.SelectData):
                     path = evt.value["image"]["path"]
                     portrait_local, garment_locals, result_local = _resolve_result_images(UPLOADS_PREFIX, path)
                     if not portrait_local or not garment_locals:
-                        gr.Warning("Could not find matching portrait/garment.")
+                        gr.Warning(f"Could not find matching portrait/garment for: {Path(path).name}")
                     return portrait_local, garment_locals, result_local, portrait_local, garment_locals, result_local
 
                 promo_result_gallery.select(
