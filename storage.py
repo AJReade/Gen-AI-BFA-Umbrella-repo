@@ -98,6 +98,8 @@ def parse_result_filename(filename):
     parts = stem.rsplit("_", 2)
     if len(parts) != 3 or parts[2] != "result":
         return None
+    if "-" in parts[1]:
+        return None
     return {"portrait_id": parts[0], "garment_id": parts[1]}
 
 
