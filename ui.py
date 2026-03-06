@@ -118,7 +118,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                         garment_pool_gallery = gr.Gallery(
                             label="Current Pool",
                             columns=6,
-                            height=120,
+                            height=250,
                             allow_preview=False,
                         )
                         clear_pool_btn = gr.Button("Clear Pool", size="sm", variant="stop")
