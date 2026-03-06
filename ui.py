@@ -217,10 +217,10 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
 
                 def clear_pool():
                     dd_updates = [gr.update(choices=["Skip"], value="Skip") for _ in range(max_people)]
-                    return [[], 0, []] + dd_updates
+                    return [[], 0, [], _gallery_images(UPLOADS_PREFIX, "garments")] + dd_updates
 
                 def reset_detection():
-                    row_updates = [gr.update(visible=False) for _ in range(max_people)]
+                    row_updates = [gr.Row(visible=False) for _ in range(max_people)]
                     dd_updates = [gr.update(value="Skip") for _ in range(max_people)]
                     cat_updates = [gr.update(value="tops") for _ in range(max_people)]
                     return ["", [], 0] + row_updates + dd_updates + cat_updates
@@ -253,7 +253,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
 
                 clear_pool_btn.click(
                     clear_pool,
-                    outputs=[garment_pool, garment_counter, garment_pool_gallery] + assignment_dropdowns,
+                    outputs=[garment_pool, garment_counter, garment_pool_gallery, garment_gallery] + assignment_dropdowns,
                 )
 
                 def on_portrait_upload(img, current_pool):
@@ -356,11 +356,11 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     cat_updates = []
                     for i in range(max_people):
                         if i < n:
-                            row_updates.append(gr.update(visible=True))
+                            row_updates.append(gr.Row(visible=True))
                             dd_updates.append(gr.update(choices=choices, value=default_garment))
                             cat_updates.append(gr.update(value="tops"))
                         else:
-                            row_updates.append(gr.update(visible=False))
+                            row_updates.append(gr.Row(visible=False))
                             dd_updates.append(gr.update(choices=choices, value="Skip"))
                             cat_updates.append(gr.update(value="tops"))
                     return (
