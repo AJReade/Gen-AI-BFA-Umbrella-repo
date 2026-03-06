@@ -101,6 +101,53 @@ def parse_result_filename(filename):
     return {"portrait_id": parts[0], "garment_id": parts[1], "category": parts[2]}
 
 
+CATEGORY_CHARS = {"tops": "t", "bottoms": "b", "one-pieces": "o"}
+CHAR_TO_CATEGORY = {v: k for k, v in CATEGORY_CHARS.items()}
+
+
+def make_multi_result_filename(portrait_id, assignments):
+    """Build result filename encoding per-person garment assignments.
+
+    assignments: list of {"garment_id": str, "category": str} or None per person.
+    Example: portrait_id=abc123, assignments=[{"garment_id":"ef12ab34","category":"tops"}, None, {"garment_id":"gh56cd78","category":"bottoms"}]
+    → "abc123_ef12ab34t-x-gh56cd78b_result.jpg"
+    """
+    slots = []
+    for a in assignments:
+        if a is None:
+            slots.append("x")
+        else:
+            cat_char = CATEGORY_CHARS.get(a["category"], "t")
+            slots.append(f"{a['garment_id']}{cat_char}")
+    code = "-".join(slots)
+    return f"{portrait_id}_{code}_result.jpg"
+
+
+def parse_multi_result_filename(filename):
+    stem = Path(filename).stem
+    if not stem.endswith("_result"):
+        return None
+    stem = stem[:-len("_result")]
+    parts = stem.split("_", 1)
+    if len(parts) != 2:
+        return None
+    portrait_id = parts[0]
+    code = parts[1]
+    slots = code.split("-")
+    assignments = []
+    for slot in slots:
+        if slot == "x":
+            assignments.append(None)
+        elif len(slot) >= 2 and slot[-1] in CHAR_TO_CATEGORY:
+            assignments.append({
+                "garment_id": slot[:-1],
+                "category": CHAR_TO_CATEGORY[slot[-1]],
+            })
+        else:
+            return None
+    return {"portrait_id": portrait_id, "assignments": assignments}
+
+
 def list_local_images(directory):
     d = Path(directory)
     if not d.exists():
@@ -234,6 +281,16 @@ def save_result(prefix, portrait_id, garment_id, category, img_result):
     """Save a result image encoding both portrait and garment IDs."""
     local_prefix = LOCAL_DATA / prefix
     result_name = make_result_filename(portrait_id, garment_id, category)
+    result_path = local_prefix / "results" / result_name
+    save_image(img_result, result_path)
+    upload_image(result_path, f"{prefix}/results/{result_name}")
+    return str(result_path)
+
+
+def save_multi_result(prefix, portrait_id, assignments, img_result):
+    """Save a multi-garment result image with assignment-encoded filename."""
+    local_prefix = LOCAL_DATA / prefix
+    result_name = make_multi_result_filename(portrait_id, assignments)
     result_path = local_prefix / "results" / result_name
     save_image(img_result, result_path)
     upload_image(result_path, f"{prefix}/results/{result_name}")

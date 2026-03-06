@@ -41,16 +41,20 @@ class MultiPersonVTON:
             people.append(Image.fromarray(cutout))
         return people
 
-    def apply_vton_to_people(self, people, garment, category="tops", selected_indices=None):
-        if selected_indices is None:
-            selected_indices = list(range(len(people)))
+    def apply_vton_to_people(self, people, assignments):
+        """Apply VTON per person based on individual assignments.
+
+        assignments: list of {"garment": PIL.Image|None, "category": str} per person.
+        If garment is None, person is kept as-is (skipped).
+        """
         vton_people = []
         for i, person in enumerate(people):
-            if i in selected_indices:
+            garment = assignments[i]["garment"]
+            if garment is not None:
                 result = self.pipeline(
                     person_image=person,
                     garment_image=garment,
-                    category=category
+                    category=assignments[i]["category"]
                 )
                 vton_people.append(result.images[0])
             else:
@@ -166,12 +170,14 @@ class MultiPersonVTON:
             cleaned_vton_masks.append(cleaned_mask)
         return cleaned_vton_people, cleaned_vton_masks
 
-    def process_group_image(self, group_image, garment_image, category="tops", selected_indices=None):
+    def process_group_image(self, group_image, assignments):
+        """Process a group image with per-person garment assignments.
+
+        assignments: list of {"garment": PIL.Image|None, "category": str} per person.
+        """
         print("Step 1: Loading images...")
         if isinstance(group_image, np.ndarray):
             group_image = Image.fromarray(group_image)
-        if isinstance(garment_image, np.ndarray):
-            garment_image = Image.fromarray(garment_image)
         if isinstance(group_image, Image.Image):
             group_image.save("people.png")
 
@@ -188,15 +194,17 @@ class MultiPersonVTON:
         print("Step 3: Extracting individual people...")
         people = self.extract_people(img, masks)
 
-        print("Step 4: Applying VTON to selected people...")
-        vton_people = self.apply_vton_to_people(people, garment_image, category, selected_indices)
+        # Pad assignments to match detected people count
+        while len(assignments) < len(people):
+            assignments.append({"garment": None, "category": "tops"})
+
+        print("Step 4: Applying VTON to people...")
+        vton_people = self.apply_vton_to_people(people, assignments)
 
         print("Step 5: Getting masks for VTON results...")
         vton_masks = self.get_vton_masks(vton_people)
-        if selected_indices is None:
-            selected_indices = list(range(len(people)))
         for i in range(len(vton_masks)):
-            if i not in selected_indices:
+            if assignments[i]["garment"] is None:
                 yolo_mask = (masks[i].astype(np.uint8) * 255)
                 yolo_mask = cv2.GaussianBlur(yolo_mask, (3, 3), 1)
                 vton_masks[i] = yolo_mask
@@ -279,22 +287,37 @@ def detect_people(portrait_path):
     return people
 
 @spaces.GPU
-def process_images(selected_portrait, selected_garment, category, selected_people=None):
-    if selected_portrait is None or selected_garment is None:
-        raise gr.Error("Please select a portrait and a garment.")
+def process_images(selected_portrait, garment_pool, num_detected, *assignment_args):
+    if selected_portrait is None:
+        raise gr.Error("Please select a portrait.")
+    if not garment_pool:
+        raise gr.Error("Please add at least one garment to the pool.")
     portrait = Image.open(selected_portrait) if isinstance(selected_portrait, str) else selected_portrait
-    garment = Image.open(selected_garment) if isinstance(selected_garment, str) else selected_garment
     pipeline = get_pipeline()
     new_width = 576
     w, h = portrait.size
     new_height = int(h * new_width / w)
     resized = portrait.resize((new_width, new_height), Image.LANCZOS)
-    selected_indices = None
-    if selected_people:
-        selected_indices = [int(s.split(" ")[1]) - 1 for s in selected_people]
-    result, _ = pipeline.process_group_image(resized, garment, category, selected_indices)
+
+    # Build per-person assignments from dropdown/radio values
+    # assignment_args: dd_0, dd_1, ..., dd_7, cat_0, cat_1, ..., cat_7
+    n = num_detected if num_detected else 0
+    max_p = len(assignment_args) // 2
+    pool_by_label = {g["label"]: g for g in garment_pool}
+    assignments = []
+    for i in range(n):
+        dd_val = assignment_args[i]
+        cat_val = assignment_args[max_p + i]
+        if dd_val == "Skip" or dd_val not in pool_by_label:
+            assignments.append({"garment": None, "category": cat_val or "tops"})
+        else:
+            g = pool_by_label[dd_val]
+            garment_img = Image.open(g["path"]) if isinstance(g["path"], str) else g["path"]
+            assignments.append({"garment": garment_img, "category": cat_val or "tops"})
+
+    result, _ = pipeline.process_group_image(resized, assignments)
     return result
 
-demo = build_demo(process_images, detect_fn=detect_people)
+demo = build_demo(process_images, detect_fn=detect_people, max_people=8)
 from huggingface_hub import constants as hf_constants
 demo.launch(allowed_paths=[hf_constants.HF_HUB_CACHE])

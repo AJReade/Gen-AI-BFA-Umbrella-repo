@@ -4,6 +4,7 @@ from pathlib import Path
 from storage import (
     load_image_sets,
     save_image_set,
+    save_multi_result,
     save_result,
     delete_image_set,
     promote_to_example,
@@ -17,6 +18,7 @@ from storage import (
     generate_id,
     parse_filename,
     parse_result_filename,
+    parse_multi_result_filename,
     file_url,
     LOCAL_DATA,
 )
@@ -41,21 +43,43 @@ def _gallery_images(prefix, subdir):
     return list_gallery_urls(prefix, subdir)
 
 
-def build_demo(process_fn, detect_fn=None):
+MAX_PEOPLE = 8
 
-    def process_and_save(portrait_path, garment_path, category, selected_people):
-        if portrait_path is None or garment_path is None:
-            raise gr.Error("Please select a portrait and a garment.")
-        result = process_fn(portrait_path, garment_path, category, selected_people or None)
-        if result and portrait_path and garment_path:
+
+def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
+
+    def process_and_save(portrait_path, garment_pool, num_detected, *assignment_args):
+        if portrait_path is None:
+            raise gr.Error("Please select a portrait.")
+        if not garment_pool:
+            raise gr.Error("Please add at least one garment to the pool.")
+        result = process_fn(portrait_path, garment_pool, num_detected, *assignment_args)
+        if result and portrait_path:
             p_parsed = parse_filename(Path(portrait_path).name)
-            g_parsed = parse_filename(Path(garment_path).name)
-            if p_parsed and g_parsed:
-                for p in [portrait_path, garment_path]:
-                    local = Path(p)
-                    if local.exists() and str(local).startswith(str(LOCAL_DATA)):
-                        upload_image(local, str(local.relative_to(LOCAL_DATA)))
-                save_result(UPLOADS_PREFIX, p_parsed["id"], g_parsed["id"], category, result)
+            if p_parsed:
+                # Upload portrait if local
+                local = Path(portrait_path)
+                if local.exists() and str(local).startswith(str(LOCAL_DATA)):
+                    upload_image(local, str(local.relative_to(LOCAL_DATA)))
+                # Upload garments and build assignment metadata for filename
+                n = num_detected if num_detected else 0
+                max_p = len(assignment_args) // 2
+                pool_by_label = {g["label"]: g for g in garment_pool}
+                file_assignments = []
+                for i in range(n):
+                    dd_val = assignment_args[i]
+                    cat_val = assignment_args[max_p + i]
+                    if dd_val == "Skip" or dd_val not in pool_by_label:
+                        file_assignments.append(None)
+                    else:
+                        g = pool_by_label[dd_val]
+                        g_parsed = parse_filename(Path(g["path"]).name)
+                        garment_local = Path(g["path"])
+                        if garment_local.exists() and str(garment_local).startswith(str(LOCAL_DATA)):
+                            upload_image(garment_local, str(garment_local.relative_to(LOCAL_DATA)))
+                        garment_id = g_parsed["id"] if g_parsed else generate_id()
+                        file_assignments.append({"garment_id": garment_id, "category": cat_val or "tops"})
+                save_multi_result(UPLOADS_PREFIX, p_parsed["id"], file_assignments, result)
         return result
 
     with gr.Blocks(title="Multi-Person Virtual Try-On") as demo:
@@ -63,15 +87,17 @@ def build_demo(process_fn, detect_fn=None):
             # ---- Main VTON Tab ----
             with gr.Tab("Virtual Try-On"):
                 gr.Markdown("# Multi-Person Virtual Try-On")
-                gr.Markdown("Select a portrait and garment, or upload new ones.")
+                gr.Markdown("Select a portrait, add garments to the pool, detect people, and assign garments.")
 
                 selected_portrait = gr.State(value=None)
-                selected_garment = gr.State(value=None)
+                garment_pool = gr.State(value=[])
+                num_detected = gr.State(value=0)
+                garment_counter = gr.State(value=0)
 
-                # User uploads section
+                # Portrait section
                 with gr.Row():
                     with gr.Column():
-                        gr.Markdown("### Portraits")
+                        gr.Markdown("### Portrait")
                         portrait_gallery = gr.Gallery(
                             value=_gallery_images(UPLOADS_PREFIX, "portraits"),
                             label="Uploaded Portraits",
@@ -84,12 +110,14 @@ def build_demo(process_fn, detect_fn=None):
                             with gr.Row():
                                 portrait_url_input = gr.Textbox(label="Or paste image URL", scale=4)
                                 portrait_url_btn = gr.Button("Load", size="sm", scale=1)
+                        preview_portrait = gr.Image(label="Selected Portrait", interactive=False, height=250)
 
+                    # Garment pool section
                     with gr.Column():
-                        gr.Markdown("### Garments")
+                        gr.Markdown("### Garment Pool")
                         garment_gallery = gr.Gallery(
                             value=_gallery_images(UPLOADS_PREFIX, "garments"),
-                            label="Uploaded Garments",
+                            label="Available Garments (click to add to pool)",
                             columns=4,
                             height=200,
                             allow_preview=False,
@@ -99,18 +127,15 @@ def build_demo(process_fn, detect_fn=None):
                             with gr.Row():
                                 garment_url_input = gr.Textbox(label="Or paste image URL", scale=4)
                                 garment_url_btn = gr.Button("Load", size="sm", scale=1)
+                        garment_pool_gallery = gr.Gallery(
+                            label="Current Pool",
+                            columns=6,
+                            height=120,
+                            allow_preview=False,
+                        )
+                        clear_pool_btn = gr.Button("Clear Pool", size="sm", variant="stop")
 
-                gr.Markdown("### Selected")
-                with gr.Row():
-                    preview_portrait = gr.Image(label="Selected Portrait", interactive=False, height=250)
-                    preview_garment = gr.Image(label="Selected Garment", interactive=False, height=250)
-
-                category = gr.Radio(
-                    choices=["tops", "bottoms", "one-pieces"],
-                    value="tops",
-                    label="Category",
-                )
-
+                # Detection section
                 detect_btn = gr.Button("Detect People", variant="secondary")
                 detect_status = gr.Textbox(interactive=False, show_label=False, value="")
                 people_gallery = gr.Gallery(
@@ -119,12 +144,32 @@ def build_demo(process_fn, detect_fn=None):
                     height=300,
                     allow_preview=False,
                 )
-                people_selection = gr.CheckboxGroup(
-                    label="Select people to dress",
-                    choices=[],
-                )
 
-                submit_btn = gr.Button("Try On All", variant="primary")
+                # Per-person assignment panel
+                gr.Markdown("### Assign Garments to People")
+                assignment_dropdowns = []
+                assignment_categories = []
+                assignment_rows = []
+
+                for i in range(max_people):
+                    with gr.Row(visible=False) as row:
+                        dd = gr.Dropdown(
+                            choices=["Skip"],
+                            value="Skip",
+                            label=f"Person {i + 1} — Garment",
+                            scale=3,
+                        )
+                        cat = gr.Radio(
+                            choices=["tops", "bottoms", "one-pieces"],
+                            value="tops",
+                            label="Category",
+                            scale=2,
+                        )
+                        assignment_dropdowns.append(dd)
+                        assignment_categories.append(cat)
+                        assignment_rows.append(row)
+
+                submit_btn = gr.Button("Try On", variant="primary")
                 result_image = gr.Image(type="pil", label="Result")
 
                 # Examples section
@@ -153,108 +198,174 @@ def build_demo(process_fn, detect_fn=None):
 
                 # -- Event handlers --
 
-                def on_gallery_select(evt: gr.SelectData):
+                def on_portrait_gallery_select(evt: gr.SelectData):
                     path = evt.value["image"]["path"]
                     local_path = download_to_local(path)
                     return local_path, local_path
 
-                def reset_detection():
-                    return (
-                        "",
-                        [],
-                        gr.update(choices=[], value=[]),
-                        gr.update(value="Try On All"),
-                    )
+                def on_garment_gallery_select(evt: gr.SelectData, pool, counter):
+                    """Add selected garment to pool."""
+                    path = evt.value["image"]["path"]
+                    local_path = download_to_local(path)
+                    new_counter = counter + 1
+                    label = f"Garment {new_counter}"
+                    new_pool = pool + [{"path": local_path, "label": label}]
+                    pool_images = [g["path"] for g in new_pool]
+                    choices = ["Skip"] + [g["label"] for g in new_pool]
+                    dd_updates = [gr.update(choices=choices) for _ in range(max_people)]
+                    return [new_pool, new_counter, pool_images] + dd_updates
 
-                detection_reset_outputs = [detect_status, people_gallery, people_selection, submit_btn]
+                def clear_pool():
+                    dd_updates = [gr.update(choices=["Skip"], value="Skip") for _ in range(max_people)]
+                    return [[], 0, []] + dd_updates
+
+                def reset_detection():
+                    row_updates = [gr.update(visible=False) for _ in range(max_people)]
+                    dd_updates = [gr.update(value="Skip") for _ in range(max_people)]
+                    cat_updates = [gr.update(value="tops") for _ in range(max_people)]
+                    return ["", [], 0] + row_updates + dd_updates + cat_updates
+
+                detection_reset_outputs = (
+                    [detect_status, people_gallery, num_detected]
+                    + assignment_rows
+                    + assignment_dropdowns
+                    + assignment_categories
+                )
 
                 portrait_gallery.select(
-                    on_gallery_select, outputs=[selected_portrait, preview_portrait]
+                    on_portrait_gallery_select, outputs=[selected_portrait, preview_portrait]
                 ).then(reset_detection, outputs=detection_reset_outputs)
-                garment_gallery.select(on_gallery_select, outputs=[selected_garment, preview_garment])
-                ex_portrait_gallery.select(
-                    on_gallery_select, outputs=[selected_portrait, preview_portrait]
-                ).then(reset_detection, outputs=detection_reset_outputs)
-                ex_garment_gallery.select(on_gallery_select, outputs=[selected_garment, preview_garment])
 
-                def on_portrait_upload(img, current_category):
+                garment_gallery.select(
+                    on_garment_gallery_select,
+                    inputs=[garment_pool, garment_counter],
+                    outputs=[garment_pool, garment_counter, garment_pool_gallery] + assignment_dropdowns,
+                )
+
+                ex_portrait_gallery.select(
+                    on_portrait_gallery_select, outputs=[selected_portrait, preview_portrait]
+                ).then(reset_detection, outputs=detection_reset_outputs)
+                ex_garment_gallery.select(
+                    on_garment_gallery_select,
+                    inputs=[garment_pool, garment_counter],
+                    outputs=[garment_pool, garment_counter, garment_pool_gallery] + assignment_dropdowns,
+                )
+
+                clear_pool_btn.click(
+                    clear_pool,
+                    outputs=[garment_pool, garment_counter, garment_pool_gallery] + assignment_dropdowns,
+                )
+
+                def on_portrait_upload(img, current_pool):
                     if img is None:
                         return _gallery_images(UPLOADS_PREFIX, "portraits"), None, None, None
                     item_id = generate_id()
-                    fname = make_filename(item_id, current_category, "portrait")
+                    cat = "tops"  # default category for portrait filename
+                    fname = make_filename(item_id, cat, "portrait")
                     local_path = LOCAL_DATA / UPLOADS_PREFIX / "portraits" / fname
                     save_image(img, local_path)
                     path = str(local_path)
                     return _gallery_images(UPLOADS_PREFIX, "portraits"), path, path, None
 
-                def on_garment_upload(img, current_category):
+                def on_garment_upload(img, pool, counter):
                     if img is None:
-                        return _gallery_images(UPLOADS_PREFIX, "garments"), None, None, None
+                        choices = ["Skip"] + [g["label"] for g in pool]
+                        dd_updates = [gr.update(choices=choices) for _ in range(max_people)]
+                        return [_gallery_images(UPLOADS_PREFIX, "garments"), pool, counter, [g["path"] for g in pool], None] + dd_updates
                     item_id = generate_id()
-                    fname = make_filename(item_id, current_category, "garment")
+                    cat = "tops"
+                    fname = make_filename(item_id, cat, "garment")
                     local_path = LOCAL_DATA / UPLOADS_PREFIX / "garments" / fname
                     save_image(img, local_path)
                     path = str(local_path)
-                    return _gallery_images(UPLOADS_PREFIX, "garments"), path, path, None
+                    new_counter = counter + 1
+                    label = f"Garment {new_counter}"
+                    new_pool = pool + [{"path": path, "label": label}]
+                    pool_images = [g["path"] for g in new_pool]
+                    choices = ["Skip"] + [g["label"] for g in new_pool]
+                    dd_updates = [gr.update(choices=choices) for _ in range(max_people)]
+                    return [_gallery_images(UPLOADS_PREFIX, "garments"), new_pool, new_counter, pool_images, None] + dd_updates
 
-                def on_portrait_url(url, current_category):
+                def on_portrait_url(url, pool):
                     if not url or not url.strip():
                         return _gallery_images(UPLOADS_PREFIX, "portraits"), None, None, ""
                     local_path = download_to_local(url.strip())
                     if not is_dataset_url(url.strip()):
                         from PIL import Image as PILImage
                         item_id = generate_id()
-                        fname = make_filename(item_id, current_category, "portrait")
+                        fname = make_filename(item_id, "tops", "portrait")
                         dest = LOCAL_DATA / UPLOADS_PREFIX / "portraits" / fname
                         save_image(PILImage.open(local_path), dest)
                         local_path = str(dest)
                     return _gallery_images(UPLOADS_PREFIX, "portraits"), local_path, local_path, ""
 
-                def on_garment_url(url, current_category):
+                def on_garment_url(url, pool, counter):
                     if not url or not url.strip():
-                        return _gallery_images(UPLOADS_PREFIX, "garments"), None, None, ""
+                        choices = ["Skip"] + [g["label"] for g in pool]
+                        dd_updates = [gr.update(choices=choices) for _ in range(max_people)]
+                        return [_gallery_images(UPLOADS_PREFIX, "garments"), pool, counter, [g["path"] for g in pool], ""] + dd_updates
                     local_path = download_to_local(url.strip())
                     if not is_dataset_url(url.strip()):
                         from PIL import Image as PILImage
                         item_id = generate_id()
-                        fname = make_filename(item_id, current_category, "garment")
+                        fname = make_filename(item_id, "tops", "garment")
                         dest = LOCAL_DATA / UPLOADS_PREFIX / "garments" / fname
                         save_image(PILImage.open(local_path), dest)
                         local_path = str(dest)
-                    return _gallery_images(UPLOADS_PREFIX, "garments"), local_path, local_path, ""
+                    new_counter = counter + 1
+                    label = f"Garment {new_counter}"
+                    new_pool = pool + [{"path": local_path, "label": label}]
+                    pool_images = [g["path"] for g in new_pool]
+                    choices = ["Skip"] + [g["label"] for g in new_pool]
+                    dd_updates = [gr.update(choices=choices) for _ in range(max_people)]
+                    return [_gallery_images(UPLOADS_PREFIX, "garments"), new_pool, new_counter, pool_images, ""] + dd_updates
 
                 portrait_upload.change(
                     on_portrait_upload,
-                    inputs=[portrait_upload, category],
+                    inputs=[portrait_upload, garment_pool],
                     outputs=[portrait_gallery, selected_portrait, preview_portrait, portrait_upload],
                 ).then(reset_detection, outputs=detection_reset_outputs)
+
                 garment_upload.change(
                     on_garment_upload,
-                    inputs=[garment_upload, category],
-                    outputs=[garment_gallery, selected_garment, preview_garment, garment_upload],
-                )
-                portrait_url_btn.click(
-                    on_portrait_url,
-                    inputs=[portrait_url_input, category],
-                    outputs=[portrait_gallery, selected_portrait, preview_portrait, portrait_url_input],
-                ).then(reset_detection, outputs=detection_reset_outputs)
-                garment_url_btn.click(
-                    on_garment_url,
-                    inputs=[garment_url_input, category],
-                    outputs=[garment_gallery, selected_garment, preview_garment, garment_url_input],
+                    inputs=[garment_upload, garment_pool, garment_counter],
+                    outputs=[garment_gallery, garment_pool, garment_counter, garment_pool_gallery, garment_upload] + assignment_dropdowns,
                 )
 
-                def on_detect(portrait_path):
+                portrait_url_btn.click(
+                    on_portrait_url,
+                    inputs=[portrait_url_input, garment_pool],
+                    outputs=[portrait_gallery, selected_portrait, preview_portrait, portrait_url_input],
+                ).then(reset_detection, outputs=detection_reset_outputs)
+
+                garment_url_btn.click(
+                    on_garment_url,
+                    inputs=[garment_url_input, garment_pool, garment_counter],
+                    outputs=[garment_gallery, garment_pool, garment_counter, garment_pool_gallery, garment_url_input] + assignment_dropdowns,
+                )
+
+                def on_detect(portrait_path, pool):
                     if detect_fn is None or portrait_path is None:
                         raise gr.Error("Please select a portrait first.")
                     people = detect_fn(portrait_path)
                     n = len(people)
-                    choices = [f"Person {i+1}" for i in range(n)]
+                    choices = ["Skip"] + [g["label"] for g in pool]
+                    default_garment = choices[1] if len(choices) > 1 else "Skip"
+                    row_updates = []
+                    dd_updates = []
+                    cat_updates = []
+                    for i in range(max_people):
+                        if i < n:
+                            row_updates.append(gr.update(visible=True))
+                            dd_updates.append(gr.update(choices=choices, value=default_garment))
+                            cat_updates.append(gr.update(value="tops"))
+                        else:
+                            row_updates.append(gr.update(visible=False))
+                            dd_updates.append(gr.update(choices=choices, value="Skip"))
+                            cat_updates.append(gr.update(value="tops"))
                     return (
-                        f"Found {n} {'person' if n == 1 else 'people'}",
-                        people,
-                        gr.update(choices=choices, value=choices),
-                        gr.update(value="Try On Selected"),
+                        [f"Found {n} {'person' if n == 1 else 'people'}", people, n]
+                        + row_updates + dd_updates + cat_updates
                     )
 
                 detect_btn.click(
@@ -262,13 +373,15 @@ def build_demo(process_fn, detect_fn=None):
                     outputs=[detect_status],
                 ).then(
                     on_detect,
-                    inputs=[selected_portrait],
-                    outputs=[detect_status, people_gallery, people_selection, submit_btn],
+                    inputs=[selected_portrait, garment_pool],
+                    outputs=[detect_status, people_gallery, num_detected]
+                    + assignment_rows + assignment_dropdowns + assignment_categories,
                 )
 
                 submit_btn.click(
                     process_and_save,
-                    inputs=[selected_portrait, selected_garment, category, people_selection],
+                    inputs=[selected_portrait, garment_pool, num_detected]
+                    + assignment_dropdowns + assignment_categories,
                     outputs=result_image,
                 )
 
@@ -340,7 +453,6 @@ def build_demo(process_fn, detect_fn=None):
                     return rows
 
                 def _resolve_image(img, url):
-                    """Use uploaded image if available, otherwise download from URL."""
                     if img is not None:
                         return img
                     if url and url.strip():
@@ -405,21 +517,40 @@ def build_demo(process_fn, detect_fn=None):
                 def on_result_select(evt: gr.SelectData):
                     path = evt.value["image"]["path"]
                     result_local = download_to_local(path)
-                    parsed = parse_result_filename(Path(result_local).name)
+                    fname = Path(result_local).name
+                    # Try old single-garment format first
+                    parsed = parse_result_filename(fname)
                     if not parsed:
                         parsed = parse_result_filename(Path(path).name)
-                    if not parsed:
-                        return None, None, result_local, "tops", None, None, result_local
-                    cat = parsed["category"]
-                    try:
-                        portrait_url = file_url(f"{UPLOADS_PREFIX}/portraits/{make_filename(parsed['portrait_id'], cat, 'portrait')}")
-                        garment_url = file_url(f"{UPLOADS_PREFIX}/garments/{make_filename(parsed['garment_id'], cat, 'garment')}")
-                        portrait_local = download_to_local(portrait_url)
-                        garment_local = download_to_local(garment_url)
-                    except Exception:
-                        gr.Warning("Matching portrait/garment not found in dataset.")
-                        return None, None, result_local, cat, None, None, result_local
-                    return portrait_local, garment_local, result_local, cat, portrait_local, garment_local, result_local
+                    if parsed:
+                        cat = parsed["category"]
+                        try:
+                            portrait_url = file_url(f"{UPLOADS_PREFIX}/portraits/{make_filename(parsed['portrait_id'], cat, 'portrait')}")
+                            garment_url = file_url(f"{UPLOADS_PREFIX}/garments/{make_filename(parsed['garment_id'], cat, 'garment')}")
+                            portrait_local = download_to_local(portrait_url)
+                            garment_local = download_to_local(garment_url)
+                            return portrait_local, garment_local, result_local, cat, portrait_local, garment_local, result_local
+                        except Exception:
+                            pass
+                    # Try multi-garment format
+                    multi = parse_multi_result_filename(fname)
+                    if not multi:
+                        multi = parse_multi_result_filename(Path(path).name)
+                    if multi:
+                        # Find first non-None assignment for promote
+                        first_assignment = next((a for a in multi["assignments"] if a is not None), None)
+                        if first_assignment:
+                            cat = first_assignment["category"]
+                            try:
+                                portrait_url = file_url(f"{UPLOADS_PREFIX}/portraits/{make_filename(multi['portrait_id'], cat, 'portrait')}")
+                                garment_url = file_url(f"{UPLOADS_PREFIX}/garments/{make_filename(first_assignment['garment_id'], cat, 'garment')}")
+                                portrait_local = download_to_local(portrait_url)
+                                garment_local = download_to_local(garment_url)
+                                return portrait_local, garment_local, result_local, cat, portrait_local, garment_local, result_local
+                            except Exception:
+                                pass
+                    gr.Warning("Could not find matching portrait/garment.")
+                    return None, None, result_local, "tops", None, None, result_local
 
                 promo_result_gallery.select(
                     on_result_select,
@@ -451,7 +582,9 @@ def build_demo(process_fn, detect_fn=None):
 
 
 if __name__ == "__main__":
-    def dummy_process(portrait, garment, category, selected_people=None):
+    def dummy_process(portrait, pool, num_detected, *assignment_args):
         return Image.new("RGB", (512, 512), (200, 200, 200))
-    demo = build_demo(dummy_process)
+    def dummy_detect(portrait_path):
+        return [Image.new("RGB", (100, 200), (255, 0, 0)), Image.new("RGB", (100, 200), (0, 255, 0))]
+    demo = build_demo(dummy_process, detect_fn=dummy_detect)
     demo.launch()
