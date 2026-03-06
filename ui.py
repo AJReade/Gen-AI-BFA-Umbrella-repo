@@ -31,10 +31,6 @@ for subdir in ["portraits", "garments", "results"]:
     (LOCAL_DATA / UPLOADS_PREFIX / subdir).mkdir(parents=True, exist_ok=True)
 
 
-def _load_examples():
-    return load_image_sets(EXAMPLES_PREFIX)
-
-
 def _load_uploads():
     return load_image_sets(UPLOADS_PREFIX)
 
@@ -188,26 +184,22 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                 # Examples section
                 gr.Markdown("---")
                 gr.Markdown("### Examples")
-                with gr.Row():
-                    ex_portrait_gallery = gr.Gallery(
-                        label="Example Portraits",
-                        columns=4,
-                        height=200,
-                        allow_preview=False,
-                    )
-                    ex_garment_gallery = gr.Gallery(
-                        label="Example Garments",
-                        columns=4,
-                        height=200,
-                        allow_preview=False,
-                    )
-                    ex_result_gallery = gr.Gallery(
-                        label="Example Results",
-                        columns=4,
-                        height=200,
-                        allow_preview=False,
-                    )
+                example_sets = gr.State(value=[])
                 refresh_examples_btn = gr.Button("Refresh Examples", size="sm")
+
+                @gr.render(inputs=[example_sets])
+                def render_examples(sets):
+                    for i, ex in enumerate(sets or []):
+                        with gr.Row():
+                            gr.Image(value=ex["portrait"], label="Portrait", height=200, interactive=False, scale=1)
+                            for j, g in enumerate(ex["garments"]):
+                                gr.Image(value=g, label=f"Garment {j+1}", height=200, interactive=False, scale=1)
+                            gr.Image(value=ex["result"], label="Result", height=200, interactive=False, scale=1)
+                            use_btn = gr.Button("Use", size="sm", scale=0, min_width=60)
+                            use_btn.click(
+                                lambda p=ex["portrait"], gs=ex["garments"]: _load_example(p, gs),
+                                outputs=[selected_portrait, preview_portrait, garment_pool, garment_counter, garment_pool_gallery],
+                            )
 
                 # -- Event handlers --
 
@@ -226,6 +218,11 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     pool_images = [g["path"] for g in new_pool]
                     return new_pool, new_counter, pool_images
 
+                def _load_example(portrait_path, garment_paths):
+                    pool = [{"path": g, "label": f"Garment {i+1}"} for i, g in enumerate(garment_paths)]
+                    pool_images = [g["path"] for g in pool]
+                    return portrait_path, portrait_path, pool, len(pool), pool_images
+
                 def clear_pool():
                     return [], 0, [], _gallery_images(UPLOADS_PREFIX, "garments")
 
@@ -243,30 +240,6 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     inputs=[garment_pool, garment_counter],
                     outputs=[garment_pool, garment_counter, garment_pool_gallery],
                 )
-
-                ex_portrait_gallery.select(
-                    on_portrait_gallery_select, outputs=[selected_portrait, preview_portrait]
-                ).then(reset_detection, outputs=detection_reset_outputs)
-                ex_garment_gallery.select(
-                    on_garment_gallery_select,
-                    inputs=[garment_pool, garment_counter],
-                    outputs=[garment_pool, garment_counter, garment_pool_gallery],
-                )
-
-                def on_example_result_select(evt: gr.SelectData):
-                    path = evt.value["image"]["path"]
-                    portrait_local, garment_locals, result_local = _resolve_result_images(EXAMPLES_PREFIX, path)
-                    if not portrait_local or not garment_locals:
-                        gr.Warning(f"Could not resolve example images for: {Path(path).name}")
-                        return None, None, [], 0, []
-                    pool = [{"path": g, "label": f"Garment {i+1}"} for i, g in enumerate(garment_locals)]
-                    pool_images = [g["path"] for g in pool]
-                    return portrait_local, portrait_local, pool, len(pool), pool_images
-
-                ex_result_gallery.select(
-                    on_example_result_select,
-                    outputs=[selected_portrait, preview_portrait, garment_pool, garment_counter, garment_pool_gallery],
-                ).then(reset_detection, outputs=detection_reset_outputs)
 
                 clear_pool_btn.click(
                     clear_pool,
@@ -368,19 +341,21 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                 )
 
                 def refresh_examples():
-                    return (
-                        _gallery_images(EXAMPLES_PREFIX, "portraits"),
-                        _gallery_images(EXAMPLES_PREFIX, "garments"),
-                        _gallery_images(EXAMPLES_PREFIX, "results"),
-                    )
+                    result_urls = _gallery_images(EXAMPLES_PREFIX, "results")
+                    sets = []
+                    for r in result_urls:
+                        portrait, garments, result = _resolve_result_images(EXAMPLES_PREFIX, r)
+                        if portrait and garments:
+                            sets.append({"portrait": portrait, "garments": garments, "result": result})
+                    return sets
 
                 refresh_examples_btn.click(
                     refresh_examples,
-                    outputs=[ex_portrait_gallery, ex_garment_gallery, ex_result_gallery],
+                    outputs=[example_sets],
                 )
                 demo.load(
                     refresh_examples,
-                    outputs=[ex_portrait_gallery, ex_garment_gallery, ex_result_gallery],
+                    outputs=[example_sets],
                 )
 
             # ---- Admin Tab ----
@@ -405,7 +380,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                 gr.Markdown("---")
                 gr.Markdown("### Current Examples")
                 admin_examples_table = gr.Dataframe(
-                    headers=["ID", "Portrait", "Garment", "Result"],
+                    headers=["ID", "Result Filename"],
                     label="Examples",
                     interactive=False,
                 )
@@ -415,15 +390,13 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     delete_btn = gr.Button("Delete", variant="stop", scale=1)
 
                 def get_examples_table():
-                    examples = _load_examples()
+                    results = list_gallery_urls(EXAMPLES_PREFIX, "results")
                     rows = []
-                    for ex in examples:
-                        rows.append([
-                            ex["id"],
-                            Path(ex["portrait"]).name if ex.get("portrait") else "",
-                            Path(ex["garment"]).name if ex.get("garment") else "",
-                            Path(ex["result"]).name if ex.get("result") else "",
-                        ])
+                    for r in results:
+                        fname = Path(r).name
+                        parsed = parse_result_filename(fname) or parse_multi_result_filename(fname)
+                        rid = parsed["portrait_id"] if parsed else Path(fname).stem
+                        rows.append([rid, fname])
                     return rows
 
                 def _resolve_image(img, url):

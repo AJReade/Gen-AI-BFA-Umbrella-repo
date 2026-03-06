@@ -277,17 +277,20 @@ def save_multi_result(prefix, portrait_id, assignments, img_result):
 
 
 def delete_image_set(prefix, item_id):
-    """Delete all files for an image set."""
+    """Delete all files for an image set (scans for ID prefix to catch multi-garment files)."""
     local_prefix = LOCAL_DATA / prefix
-    for subdir, item_type in [("portraits", "portrait"), ("garments", "garment"), ("results", "result")]:
-        local_file = local_prefix / subdir / f"{item_id}_{item_type}.jpg"
-        if local_file.exists():
-            local_file.unlink()
-        if is_remote():
-            try:
-                delete_remote_file(f"{prefix}/{subdir}/{item_id}_{item_type}.jpg")
-            except Exception:
-                pass
+    for subdir in ("portraits", "garments", "results"):
+        d = local_prefix / subdir
+        if not d.exists():
+            continue
+        for f in d.iterdir():
+            if f.stem.startswith(item_id):
+                f.unlink()
+                if is_remote():
+                    try:
+                        delete_remote_file(f"{prefix}/{subdir}/{f.name}")
+                    except Exception:
+                        pass
 
 
 def promote_to_example(portrait_path, garment_paths, result_path=None):
