@@ -145,32 +145,43 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     allow_preview=False,
                 )
 
-                # Per-person assignment panel
-                gr.Markdown("### Assign Garments to People")
-                assignment_dropdowns = []
-                assignment_categories = []
-                assignment_rows = []
+                # Per-person assignment panel (dynamically rendered)
+                @gr.render(inputs=[num_detected, garment_pool])
+                def render_assignments(n_detected, pool):
+                    n = n_detected or 0
+                    choices = ["Skip"] + [g["label"] for g in (pool or [])]
+                    default_garment = choices[1] if len(choices) > 1 else "Skip"
 
-                for i in range(max_people):
-                    with gr.Row(visible=False) as row:
-                        dd = gr.Dropdown(
-                            choices=["Skip"],
-                            value="Skip",
-                            label=f"Person {i + 1} — Garment",
-                            scale=3,
-                        )
-                        cat = gr.Radio(
-                            choices=["tops", "bottoms", "one-pieces"],
-                            value="tops",
-                            label="Category",
-                            scale=2,
-                        )
-                        assignment_dropdowns.append(dd)
-                        assignment_categories.append(cat)
-                        assignment_rows.append(row)
+                    if n > 0:
+                        gr.Markdown(f"### Assign Garments to {n} {'Person' if n == 1 else 'People'}")
 
-                submit_btn = gr.Button("Try On", variant="primary")
-                result_image = gr.Image(type="pil", label="Result")
+                    dds = []
+                    cats = []
+                    for i in range(n):
+                        with gr.Row():
+                            dd = gr.Dropdown(
+                                choices=choices,
+                                value=default_garment,
+                                label=f"Person {i + 1} — Garment",
+                                scale=3,
+                            )
+                            cat = gr.Radio(
+                                choices=["tops", "bottoms", "one-pieces"],
+                                value="tops",
+                                label="Category",
+                                scale=2,
+                            )
+                            dds.append(dd)
+                            cats.append(cat)
+
+                    submit_btn = gr.Button("Try On", variant="primary")
+                    result_image = gr.Image(type="pil", label="Result")
+
+                    submit_btn.click(
+                        process_and_save,
+                        inputs=[selected_portrait, garment_pool, num_detected] + dds + cats,
+                        outputs=result_image,
+                    )
 
                 # Examples section
                 gr.Markdown("---")
@@ -211,26 +222,15 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     label = f"Garment {new_counter}"
                     new_pool = pool + [{"path": local_path, "label": label}]
                     pool_images = [g["path"] for g in new_pool]
-                    choices = ["Skip"] + [g["label"] for g in new_pool]
-                    dd_updates = [gr.update(choices=choices) for _ in range(max_people)]
-                    return [new_pool, new_counter, pool_images] + dd_updates
+                    return new_pool, new_counter, pool_images
 
                 def clear_pool():
-                    dd_updates = [gr.update(choices=["Skip"], value="Skip") for _ in range(max_people)]
-                    return [[], 0, [], _gallery_images(UPLOADS_PREFIX, "garments")] + dd_updates
+                    return [], 0, [], _gallery_images(UPLOADS_PREFIX, "garments")
 
                 def reset_detection():
-                    row_updates = [gr.Row(visible=False) for _ in range(max_people)]
-                    dd_updates = [gr.update(value="Skip") for _ in range(max_people)]
-                    cat_updates = [gr.update(value="tops") for _ in range(max_people)]
-                    return ["", [], 0] + row_updates + dd_updates + cat_updates
+                    return "", [], 0
 
-                detection_reset_outputs = (
-                    [detect_status, people_gallery, num_detected]
-                    + assignment_rows
-                    + assignment_dropdowns
-                    + assignment_categories
-                )
+                detection_reset_outputs = [detect_status, people_gallery, num_detected]
 
                 portrait_gallery.select(
                     on_portrait_gallery_select, outputs=[selected_portrait, preview_portrait]
@@ -239,7 +239,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                 garment_gallery.select(
                     on_garment_gallery_select,
                     inputs=[garment_pool, garment_counter],
-                    outputs=[garment_pool, garment_counter, garment_pool_gallery] + assignment_dropdowns,
+                    outputs=[garment_pool, garment_counter, garment_pool_gallery],
                 )
 
                 ex_portrait_gallery.select(
@@ -248,12 +248,12 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                 ex_garment_gallery.select(
                     on_garment_gallery_select,
                     inputs=[garment_pool, garment_counter],
-                    outputs=[garment_pool, garment_counter, garment_pool_gallery] + assignment_dropdowns,
+                    outputs=[garment_pool, garment_counter, garment_pool_gallery],
                 )
 
                 clear_pool_btn.click(
                     clear_pool,
-                    outputs=[garment_pool, garment_counter, garment_pool_gallery, garment_gallery] + assignment_dropdowns,
+                    outputs=[garment_pool, garment_counter, garment_pool_gallery, garment_gallery],
                 )
 
                 def on_portrait_upload(img, current_pool):
@@ -269,9 +269,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
 
                 def on_garment_upload(img, pool, counter):
                     if img is None:
-                        choices = ["Skip"] + [g["label"] for g in pool]
-                        dd_updates = [gr.update(choices=choices) for _ in range(max_people)]
-                        return [_gallery_images(UPLOADS_PREFIX, "garments"), pool, counter, [g["path"] for g in pool], None] + dd_updates
+                        return _gallery_images(UPLOADS_PREFIX, "garments"), pool, counter, [g["path"] for g in pool], None
                     item_id = generate_id()
                     cat = "tops"
                     fname = make_filename(item_id, cat, "garment")
@@ -282,9 +280,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     label = f"Garment {new_counter}"
                     new_pool = pool + [{"path": path, "label": label}]
                     pool_images = [g["path"] for g in new_pool]
-                    choices = ["Skip"] + [g["label"] for g in new_pool]
-                    dd_updates = [gr.update(choices=choices) for _ in range(max_people)]
-                    return [_gallery_images(UPLOADS_PREFIX, "garments"), new_pool, new_counter, pool_images, None] + dd_updates
+                    return _gallery_images(UPLOADS_PREFIX, "garments"), new_pool, new_counter, pool_images, None
 
                 def on_portrait_url(url, pool):
                     if not url or not url.strip():
@@ -301,9 +297,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
 
                 def on_garment_url(url, pool, counter):
                     if not url or not url.strip():
-                        choices = ["Skip"] + [g["label"] for g in pool]
-                        dd_updates = [gr.update(choices=choices) for _ in range(max_people)]
-                        return [_gallery_images(UPLOADS_PREFIX, "garments"), pool, counter, [g["path"] for g in pool], ""] + dd_updates
+                        return _gallery_images(UPLOADS_PREFIX, "garments"), pool, counter, [g["path"] for g in pool], ""
                     local_path = download_to_local(url.strip())
                     if not is_dataset_url(url.strip()):
                         from PIL import Image as PILImage
@@ -316,9 +310,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     label = f"Garment {new_counter}"
                     new_pool = pool + [{"path": local_path, "label": label}]
                     pool_images = [g["path"] for g in new_pool]
-                    choices = ["Skip"] + [g["label"] for g in new_pool]
-                    dd_updates = [gr.update(choices=choices) for _ in range(max_people)]
-                    return [_gallery_images(UPLOADS_PREFIX, "garments"), new_pool, new_counter, pool_images, ""] + dd_updates
+                    return _gallery_images(UPLOADS_PREFIX, "garments"), new_pool, new_counter, pool_images, ""
 
                 portrait_upload.change(
                     on_portrait_upload,
@@ -329,7 +321,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                 garment_upload.change(
                     on_garment_upload,
                     inputs=[garment_upload, garment_pool, garment_counter],
-                    outputs=[garment_gallery, garment_pool, garment_counter, garment_pool_gallery, garment_upload] + assignment_dropdowns,
+                    outputs=[garment_gallery, garment_pool, garment_counter, garment_pool_gallery, garment_upload],
                 )
 
                 portrait_url_btn.click(
@@ -341,7 +333,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                 garment_url_btn.click(
                     on_garment_url,
                     inputs=[garment_url_input, garment_pool, garment_counter],
-                    outputs=[garment_gallery, garment_pool, garment_counter, garment_pool_gallery, garment_url_input] + assignment_dropdowns,
+                    outputs=[garment_gallery, garment_pool, garment_counter, garment_pool_gallery, garment_url_input],
                 )
 
                 def on_detect(portrait_path, pool):
@@ -349,24 +341,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                         raise gr.Error("Please select a portrait first.")
                     people = detect_fn(portrait_path)
                     n = len(people)
-                    choices = ["Skip"] + [g["label"] for g in pool]
-                    default_garment = choices[1] if len(choices) > 1 else "Skip"
-                    row_updates = []
-                    dd_updates = []
-                    cat_updates = []
-                    for i in range(max_people):
-                        if i < n:
-                            row_updates.append(gr.Row(visible=True))
-                            dd_updates.append(gr.update(choices=choices, value=default_garment))
-                            cat_updates.append(gr.update(value="tops"))
-                        else:
-                            row_updates.append(gr.Row(visible=False))
-                            dd_updates.append(gr.update(choices=choices, value="Skip"))
-                            cat_updates.append(gr.update(value="tops"))
-                    return (
-                        [f"Found {n} {'person' if n == 1 else 'people'}", people, n]
-                        + row_updates + dd_updates + cat_updates
-                    )
+                    return f"Found {n} {'person' if n == 1 else 'people'}", people, n
 
                 detect_btn.click(
                     lambda: "Detecting people...",
@@ -374,15 +349,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                 ).then(
                     on_detect,
                     inputs=[selected_portrait, garment_pool],
-                    outputs=[detect_status, people_gallery, num_detected]
-                    + assignment_rows + assignment_dropdowns + assignment_categories,
-                )
-
-                submit_btn.click(
-                    process_and_save,
-                    inputs=[selected_portrait, garment_pool, num_detected]
-                    + assignment_dropdowns + assignment_categories,
-                    outputs=result_image,
+                    outputs=[detect_status, people_gallery, num_detected],
                 )
 
                 def refresh_examples():
