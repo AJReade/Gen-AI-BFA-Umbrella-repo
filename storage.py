@@ -77,48 +77,38 @@ def generate_id():
     return uuid.uuid4().hex[:8]
 
 
-def make_filename(item_id, category, item_type):
-    return f"{item_id}_{category}_{item_type}.jpg"
+def make_filename(item_id, item_type):
+    return f"{item_id}_{item_type}.jpg"
 
 
 def parse_filename(filename):
     stem = Path(filename).stem
-    parts = stem.rsplit("_", 2)
-    if len(parts) != 3:
+    parts = stem.rsplit("_", 1)
+    if len(parts) != 2:
         return None
-    return {"id": parts[0], "category": parts[1], "type": parts[2]}
+    return {"id": parts[0], "type": parts[1]}
 
 
-def make_result_filename(portrait_id, garment_id, category):
-    return f"{portrait_id}_{garment_id}_{category}_result.jpg"
+def make_result_filename(portrait_id, garment_id):
+    return f"{portrait_id}_{garment_id}_result.jpg"
 
 
 def parse_result_filename(filename):
     stem = Path(filename).stem
-    parts = stem.rsplit("_", 3)
-    if len(parts) != 4 or parts[3] != "result":
+    parts = stem.rsplit("_", 2)
+    if len(parts) != 3 or parts[2] != "result":
         return None
-    return {"portrait_id": parts[0], "garment_id": parts[1], "category": parts[2]}
+    return {"portrait_id": parts[0], "garment_id": parts[1]}
 
 
-CATEGORY_CHARS = {"tops": "t", "bottoms": "b", "one-pieces": "o"}
-CHAR_TO_CATEGORY = {v: k for k, v in CATEGORY_CHARS.items()}
-
-
-def make_multi_result_filename(portrait_id, assignments):
+def make_multi_result_filename(portrait_id, garment_ids):
     """Build result filename encoding per-person garment assignments.
 
-    assignments: list of {"garment_id": str, "category": str} or None per person.
-    Example: portrait_id=abc123, assignments=[{"garment_id":"ef12ab34","category":"tops"}, None, {"garment_id":"gh56cd78","category":"bottoms"}]
-    → "abc123_ef12ab34t-x-gh56cd78b_result.jpg"
+    garment_ids: list of garment_id (str) or None per person.
+    Example: portrait_id=abc123, garment_ids=["ef12ab34", None, "gh56cd78"]
+    → "abc123_ef12ab34-x-gh56cd78_result.jpg"
     """
-    slots = []
-    for a in assignments:
-        if a is None:
-            slots.append("x")
-        else:
-            cat_char = CATEGORY_CHARS.get(a["category"], "t")
-            slots.append(f"{a['garment_id']}{cat_char}")
+    slots = [gid if gid else "x" for gid in garment_ids]
     code = "-".join(slots)
     return f"{portrait_id}_{code}_result.jpg"
 
@@ -134,18 +124,8 @@ def parse_multi_result_filename(filename):
     portrait_id = parts[0]
     code = parts[1]
     slots = code.split("-")
-    assignments = []
-    for slot in slots:
-        if slot == "x":
-            assignments.append(None)
-        elif len(slot) >= 2 and slot[-1] in CHAR_TO_CATEGORY:
-            assignments.append({
-                "garment_id": slot[:-1],
-                "category": CHAR_TO_CATEGORY[slot[-1]],
-            })
-        else:
-            return None
-    return {"portrait_id": portrait_id, "assignments": assignments}
+    garment_ids = [None if slot == "x" else slot for slot in slots]
+    return {"portrait_id": portrait_id, "garment_ids": garment_ids}
 
 
 def list_local_images(directory):
@@ -234,30 +214,27 @@ def load_image_sets(prefix):
         if not parsed:
             continue
         item_id = parsed["id"]
-        category = parsed["category"]
-        key = f"{item_id}_{category}"
-        sets[key] = {
+        sets[item_id] = {
             "id": item_id,
-            "category": category,
             "portrait": str(p),
         }
     garments_dir = local_prefix / "garments"
     results_dir = local_prefix / "results"
-    for key, entry in sets.items():
-        garment = garments_dir / f"{key}_garment.jpg"
-        result = results_dir / f"{key}_result.jpg"
+    for item_id, entry in sets.items():
+        garment = garments_dir / f"{item_id}_garment.jpg"
+        result = results_dir / f"{item_id}_result.jpg"
         entry["garment"] = str(garment) if garment.exists() else None
         entry["result"] = str(result) if result.exists() else None
     return [v for v in sets.values() if v["garment"] is not None]
 
 
-def save_image_set(prefix, img_portrait, img_garment, category, img_result=None):
+def save_image_set(prefix, img_portrait, img_garment, img_result=None):
     """Save a set of images (portrait + garment + optional result) with consistent naming."""
     item_id = generate_id()
     local_prefix = LOCAL_DATA / prefix
 
-    portrait_name = make_filename(item_id, category, "portrait")
-    garment_name = make_filename(item_id, category, "garment")
+    portrait_name = make_filename(item_id, "portrait")
+    garment_name = make_filename(item_id, "garment")
 
     portrait_path = local_prefix / "portraits" / portrait_name
     garment_path = local_prefix / "garments" / garment_name
@@ -269,7 +246,7 @@ def save_image_set(prefix, img_portrait, img_garment, category, img_result=None)
 
     result_path = None
     if img_result is not None:
-        result_name = make_result_filename(item_id, item_id, category)
+        result_name = make_result_filename(item_id, item_id)
         result_path = local_prefix / "results" / result_name
         save_image(img_result, result_path)
         upload_image(result_path, f"{prefix}/results/{result_name}")
@@ -277,10 +254,10 @@ def save_image_set(prefix, img_portrait, img_garment, category, img_result=None)
     return item_id, str(portrait_path), str(garment_path), str(result_path) if result_path else None
 
 
-def save_result(prefix, portrait_id, garment_id, category, img_result):
+def save_result(prefix, portrait_id, garment_id, img_result):
     """Save a result image encoding both portrait and garment IDs."""
     local_prefix = LOCAL_DATA / prefix
-    result_name = make_result_filename(portrait_id, garment_id, category)
+    result_name = make_result_filename(portrait_id, garment_id)
     result_path = local_prefix / "results" / result_name
     save_image(img_result, result_path)
     upload_image(result_path, f"{prefix}/results/{result_name}")
@@ -297,22 +274,21 @@ def save_multi_result(prefix, portrait_id, assignments, img_result):
     return str(result_path)
 
 
-def delete_image_set(prefix, item_id, category):
+def delete_image_set(prefix, item_id):
     """Delete all files for an image set."""
-    key = f"{item_id}_{category}"
     local_prefix = LOCAL_DATA / prefix
     for subdir, item_type in [("portraits", "portrait"), ("garments", "garment"), ("results", "result")]:
-        local_file = local_prefix / subdir / f"{key}_{item_type}.jpg"
+        local_file = local_prefix / subdir / f"{item_id}_{item_type}.jpg"
         if local_file.exists():
             local_file.unlink()
         if is_remote():
             try:
-                delete_remote_file(f"{prefix}/{subdir}/{key}_{item_type}.jpg")
+                delete_remote_file(f"{prefix}/{subdir}/{item_id}_{item_type}.jpg")
             except Exception:
                 pass
 
 
-def promote_to_example(portrait_path, garment_paths, category, result_path=None):
+def promote_to_example(portrait_path, garment_paths, result_path=None):
     """Copy user upload files to examples with a new ID.
 
     garment_paths can be a single path (str) or a list of paths.
@@ -324,7 +300,7 @@ def promote_to_example(portrait_path, garment_paths, category, result_path=None)
     if portrait_path:
         src = Path(portrait_path)
         if src.exists():
-            fname = make_filename(item_id, category, "portrait")
+            fname = make_filename(item_id, "portrait")
             dest = LOCAL_DATA / "examples" / "portraits" / fname
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(str(src), str(dest))
@@ -337,7 +313,7 @@ def promote_to_example(portrait_path, garment_paths, category, result_path=None)
         if not src.exists():
             continue
         gid = f"{item_id}g{i}" if len(garment_paths) > 1 else item_id
-        fname = make_filename(gid, category, "garment")
+        fname = make_filename(gid, "garment")
         dest = LOCAL_DATA / "examples" / "garments" / fname
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(str(src), str(dest))
@@ -346,7 +322,7 @@ def promote_to_example(portrait_path, garment_paths, category, result_path=None)
     if result_path:
         src = Path(result_path)
         if src.exists():
-            fname = make_filename(item_id, category, "result")
+            fname = make_filename(item_id, "result")
             dest = LOCAL_DATA / "examples" / "results" / fname
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(str(src), str(dest))

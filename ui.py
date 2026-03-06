@@ -66,22 +66,20 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     garment_local = Path(g["path"])
                     if garment_local.exists() and str(garment_local).startswith(str(LOCAL_DATA)):
                         upload_image(garment_local, str(garment_local.relative_to(LOCAL_DATA)))
-                # Build assignment metadata for filename
+                # Build garment ID list for filename
                 n = num_detected if num_detected else 0
                 max_p = len(assignment_args) // 2
                 pool_by_label = {g["label"]: g for g in garment_pool}
-                file_assignments = []
+                garment_ids = []
                 for i in range(n):
                     dd_val = assignment_args[i]
-                    cat_val = assignment_args[max_p + i]
                     if dd_val == "Skip" or dd_val not in pool_by_label:
-                        file_assignments.append(None)
+                        garment_ids.append(None)
                     else:
                         g = pool_by_label[dd_val]
                         g_parsed = parse_filename(Path(g["path"]).name)
-                        garment_id = g_parsed["id"] if g_parsed else generate_id()
-                        file_assignments.append({"garment_id": garment_id, "category": cat_val or "tops"})
-                save_multi_result(UPLOADS_PREFIX, p_parsed["id"], file_assignments, result)
+                        garment_ids.append(g_parsed["id"] if g_parsed else generate_id())
+                save_multi_result(UPLOADS_PREFIX, p_parsed["id"], garment_ids, result)
         return result
 
     with gr.Blocks(title="Multi-Person Virtual Try-On") as demo:
@@ -257,7 +255,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
 
                 def on_example_result_select(evt: gr.SelectData):
                     path = evt.value["image"]["path"]
-                    portrait_local, garment_locals, result_local, cat = _resolve_result_images(EXAMPLES_PREFIX, path)
+                    portrait_local, garment_locals, result_local = _resolve_result_images(EXAMPLES_PREFIX, path)
                     if not portrait_local or not garment_locals:
                         gr.Warning("Could not resolve example images.")
                         return None, None, [], 0, []
@@ -279,8 +277,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     if img is None:
                         return _gallery_images(UPLOADS_PREFIX, "portraits"), None, None, None
                     item_id = generate_id()
-                    cat = "tops"  # default category for portrait filename
-                    fname = make_filename(item_id, cat, "portrait")
+                    fname = make_filename(item_id, "portrait")
                     local_path = LOCAL_DATA / UPLOADS_PREFIX / "portraits" / fname
                     save_image(img, local_path)
                     path = str(local_path)
@@ -290,8 +287,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     if img is None:
                         return _gallery_images(UPLOADS_PREFIX, "garments"), pool, counter, [g["path"] for g in pool], None
                     item_id = generate_id()
-                    cat = "tops"
-                    fname = make_filename(item_id, cat, "garment")
+                    fname = make_filename(item_id, "garment")
                     local_path = LOCAL_DATA / UPLOADS_PREFIX / "garments" / fname
                     save_image(img, local_path)
                     path = str(local_path)
@@ -308,7 +304,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     if not is_dataset_url(url.strip()):
                         from PIL import Image as PILImage
                         item_id = generate_id()
-                        fname = make_filename(item_id, "tops", "portrait")
+                        fname = make_filename(item_id, "portrait")
                         dest = LOCAL_DATA / UPLOADS_PREFIX / "portraits" / fname
                         save_image(PILImage.open(local_path), dest)
                         local_path = str(dest)
@@ -321,7 +317,7 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     if not is_dataset_url(url.strip()):
                         from PIL import Image as PILImage
                         item_id = generate_id()
-                        fname = make_filename(item_id, "tops", "garment")
+                        fname = make_filename(item_id, "garment")
                         dest = LOCAL_DATA / UPLOADS_PREFIX / "garments" / fname
                         save_image(PILImage.open(local_path), dest)
                         local_path = str(dest)
@@ -403,26 +399,19 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                         admin_result = gr.Image(type="pil", label="Result", sources=["upload", "webcam"])
                         admin_result_url = gr.Textbox(label="Or paste URL")
 
-                admin_category = gr.Radio(
-                    choices=["tops", "bottoms", "one-pieces"],
-                    value="tops",
-                    label="Category",
-                )
-
                 admin_upload_btn = gr.Button("Add Example", variant="primary")
                 admin_status = gr.Textbox(label="Status", interactive=False)
 
                 gr.Markdown("---")
                 gr.Markdown("### Current Examples")
                 admin_examples_table = gr.Dataframe(
-                    headers=["ID", "Category", "Portrait", "Garment", "Result"],
+                    headers=["ID", "Portrait", "Garment", "Result"],
                     label="Examples",
                     interactive=False,
                 )
 
                 with gr.Row():
                     delete_id = gr.Textbox(label="Example ID to delete", scale=3)
-                    delete_category = gr.Textbox(label="Category", scale=2)
                     delete_btn = gr.Button("Delete", variant="stop", scale=1)
 
                 def get_examples_table():
@@ -431,7 +420,6 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     for ex in examples:
                         rows.append([
                             ex["id"],
-                            ex["category"],
                             Path(ex["portrait"]).name if ex.get("portrait") else "",
                             Path(ex["garment"]).name if ex.get("garment") else "",
                             Path(ex["result"]).name if ex.get("result") else "",
@@ -446,31 +434,30 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                         return Image.open(local)
                     return None
 
-                def on_admin_upload(portrait, garment, result, p_url, g_url, r_url, cat):
+                def on_admin_upload(portrait, garment, result, p_url, g_url, r_url):
                     portrait = _resolve_image(portrait, p_url)
                     garment = _resolve_image(garment, g_url)
                     result = _resolve_image(result, r_url)
                     if portrait is None or garment is None:
                         return "Please provide at least portrait and garment (file or URL).", get_examples_table()
-                    save_image_set(EXAMPLES_PREFIX, portrait, garment, cat, result)
+                    save_image_set(EXAMPLES_PREFIX, portrait, garment, result)
                     return "Example added.", get_examples_table()
 
-                def on_admin_delete(ex_id, cat):
-                    if not ex_id or not cat:
-                        return "Please provide both ID and category.", get_examples_table()
-                    delete_image_set(EXAMPLES_PREFIX, ex_id.strip(), cat.strip())
+                def on_admin_delete(ex_id):
+                    if not ex_id:
+                        return "Please provide an ID.", get_examples_table()
+                    delete_image_set(EXAMPLES_PREFIX, ex_id.strip())
                     return "Deleted.", get_examples_table()
 
                 admin_upload_btn.click(
                     on_admin_upload,
                     inputs=[admin_portrait, admin_garment, admin_result,
-                            admin_portrait_url, admin_garment_url, admin_result_url,
-                            admin_category],
+                            admin_portrait_url, admin_garment_url, admin_result_url],
                     outputs=[admin_status, admin_examples_table],
                 )
                 delete_btn.click(
                     on_admin_delete,
-                    inputs=[delete_id, delete_category],
+                    inputs=[delete_id],
                     outputs=[admin_status, admin_examples_table],
                 )
 
@@ -482,7 +469,6 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                 promote_portrait = gr.State(value=None)
                 promote_garments = gr.State(value=[])
                 promote_result = gr.State(value=None)
-                promote_category = gr.State(value="tops")
 
                 promo_result_gallery = gr.Gallery(
                     value=_gallery_images(UPLOADS_PREFIX, "results"),
@@ -504,16 +490,15 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     """Parse a result filename and resolve portrait + all garments."""
                     result_local = download_to_local(path)
                     fname = Path(result_local).name
-                    # Try old single-garment format
+                    # Try single-garment format
                     parsed = parse_result_filename(fname)
                     if not parsed:
                         parsed = parse_result_filename(Path(path).name)
                     if parsed:
-                        cat = parsed["category"]
                         try:
-                            p_url = file_url(f"{prefix}/portraits/{make_filename(parsed['portrait_id'], cat, 'portrait')}")
-                            g_url = file_url(f"{prefix}/garments/{make_filename(parsed['garment_id'], cat, 'garment')}")
-                            return download_to_local(p_url), [download_to_local(g_url)], result_local, cat
+                            p_url = file_url(f"{prefix}/portraits/{make_filename(parsed['portrait_id'], 'portrait')}")
+                            g_url = file_url(f"{prefix}/garments/{make_filename(parsed['garment_id'], 'garment')}")
+                            return download_to_local(p_url), [download_to_local(g_url)], result_local
                         except Exception:
                             pass
                     # Try multi-garment format
@@ -521,43 +506,42 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                     if not multi:
                         multi = parse_multi_result_filename(Path(path).name)
                     if multi:
-                        assignments = [a for a in multi["assignments"] if a is not None]
-                        if assignments:
-                            cat = assignments[0]["category"]
+                        gids = [gid for gid in multi["garment_ids"] if gid is not None]
+                        if gids:
                             try:
-                                p_url = file_url(f"{prefix}/portraits/{make_filename(multi['portrait_id'], cat, 'portrait')}")
+                                p_url = file_url(f"{prefix}/portraits/{make_filename(multi['portrait_id'], 'portrait')}")
                                 portrait_local = download_to_local(p_url)
                                 garment_locals = []
-                                for a in assignments:
-                                    g_url = file_url(f"{prefix}/garments/{make_filename(a['garment_id'], a['category'], 'garment')}")
+                                for gid in gids:
+                                    g_url = file_url(f"{prefix}/garments/{make_filename(gid, 'garment')}")
                                     garment_locals.append(download_to_local(g_url))
-                                return portrait_local, garment_locals, result_local, cat
+                                return portrait_local, garment_locals, result_local
                             except Exception:
                                 pass
-                    return None, [], result_local, "tops"
+                    return None, [], result_local
 
                 def on_result_select(evt: gr.SelectData):
                     path = evt.value["image"]["path"]
-                    portrait_local, garment_locals, result_local, cat = _resolve_result_images(UPLOADS_PREFIX, path)
+                    portrait_local, garment_locals, result_local = _resolve_result_images(UPLOADS_PREFIX, path)
                     if not portrait_local or not garment_locals:
                         gr.Warning("Could not find matching portrait/garment.")
-                    return portrait_local, garment_locals, result_local, cat, portrait_local, garment_locals, result_local
+                    return portrait_local, garment_locals, result_local, portrait_local, garment_locals, result_local
 
                 promo_result_gallery.select(
                     on_result_select,
-                    outputs=[promote_portrait, promote_garments, promote_result, promote_category,
+                    outputs=[promote_portrait, promote_garments, promote_result,
                              promo_preview_portrait, promo_preview_garments, promo_preview_result],
                 )
 
-                def on_promote(portrait_path, garment_paths, result_path, cat):
+                def on_promote(portrait_path, garment_paths, result_path):
                     if not portrait_path or not garment_paths:
                         return "Could not find matching portrait/garment.", get_examples_table()
-                    item_id = promote_to_example(portrait_path, garment_paths, cat, result_path)
+                    item_id = promote_to_example(portrait_path, garment_paths, result_path)
                     return f"Promoted as example {item_id} ({len(garment_paths)} garment(s)).", get_examples_table()
 
                 promote_btn.click(
                     on_promote,
-                    inputs=[promote_portrait, promote_garments, promote_result, promote_category],
+                    inputs=[promote_portrait, promote_garments, promote_result],
                     outputs=[promote_status, admin_examples_table],
                 )
 
