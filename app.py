@@ -41,15 +41,20 @@ class MultiPersonVTON:
             people.append(Image.fromarray(cutout))
         return people
 
-    def apply_vton_to_people(self, people, garment, category="tops"):
+    def apply_vton_to_people(self, people, garment, category="tops", selected_indices=None):
+        if selected_indices is None:
+            selected_indices = list(range(len(people)))
         vton_people = []
-        for person in people:
-            result = self.pipeline(
-                person_image=person,
-                garment_image=garment,
-                category=category
-            )
-            vton_people.append(result.images[0])
+        for i, person in enumerate(people):
+            if i in selected_indices:
+                result = self.pipeline(
+                    person_image=person,
+                    garment_image=garment,
+                    category=category
+                )
+                vton_people.append(result.images[0])
+            else:
+                vton_people.append(person)
         return vton_people
 
     def get_vton_masks(self, vton_people):
@@ -161,7 +166,7 @@ class MultiPersonVTON:
             cleaned_vton_masks.append(cleaned_mask)
         return cleaned_vton_people, cleaned_vton_masks
 
-    def process_group_image(self, group_image, garment_image, category="tops"):
+    def process_group_image(self, group_image, garment_image, category="tops", selected_indices=None):
         print("Step 1: Loading images...")
         if isinstance(group_image, np.ndarray):
             group_image = Image.fromarray(group_image)
@@ -183,8 +188,8 @@ class MultiPersonVTON:
         print("Step 3: Extracting individual people...")
         people = self.extract_people(img, masks)
 
-        print("Step 4: Applying VTON to each person...")
-        vton_people = self.apply_vton_to_people(people, garment_image, category)
+        print("Step 4: Applying VTON to selected people...")
+        vton_people = self.apply_vton_to_people(people, garment_image, category, selected_indices)
 
         print("Step 5: Getting masks for VTON results...")
         vton_masks = self.get_vton_masks(vton_people)
@@ -248,7 +253,26 @@ def get_pipeline():
     return _pipeline
 
 @spaces.GPU
-def process_images(selected_portrait, selected_garment, category):
+def detect_people(portrait_path):
+    if portrait_path is None:
+        raise gr.Error("Please select a portrait first.")
+    portrait = Image.open(portrait_path) if isinstance(portrait_path, str) else portrait_path
+    new_width = 576
+    w, h = portrait.size
+    new_height = int(h * new_width / w)
+    resized = portrait.resize((new_width, new_height), Image.LANCZOS)
+    resized.save("people.png")
+    pipeline = get_pipeline()
+    results = pipeline.model("people.png")
+    result = results[0]
+    img = np.array(resized)
+    H, W = img.shape[:2]
+    masks = pipeline.get_mask(result, H, W)
+    people = pipeline.extract_people(img, masks)
+    return people
+
+@spaces.GPU
+def process_images(selected_portrait, selected_garment, category, selected_people=None):
     if selected_portrait is None or selected_garment is None:
         raise gr.Error("Please select a portrait and a garment.")
     portrait = Image.open(selected_portrait) if isinstance(selected_portrait, str) else selected_portrait
@@ -258,9 +282,12 @@ def process_images(selected_portrait, selected_garment, category):
     w, h = portrait.size
     new_height = int(h * new_width / w)
     resized = portrait.resize((new_width, new_height), Image.LANCZOS)
-    result, _ = pipeline.process_group_image(resized, garment, category)
+    selected_indices = None
+    if selected_people:
+        selected_indices = [int(s.split(" ")[1]) - 1 for s in selected_people]
+    result, _ = pipeline.process_group_image(resized, garment, category, selected_indices)
     return result
 
-demo = build_demo(process_images)
+demo = build_demo(process_images, detect_fn=detect_people)
 from huggingface_hub import constants as hf_constants
 demo.launch(allowed_paths=[hf_constants.HF_HUB_CACHE])

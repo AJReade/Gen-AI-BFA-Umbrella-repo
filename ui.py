@@ -41,12 +41,12 @@ def _gallery_images(prefix, subdir):
     return list_gallery_urls(prefix, subdir)
 
 
-def build_demo(process_fn):
+def build_demo(process_fn, detect_fn=None):
 
-    def process_and_save(portrait_path, garment_path, category):
+    def process_and_save(portrait_path, garment_path, category, selected_people):
         if portrait_path is None or garment_path is None:
             raise gr.Error("Please select a portrait and a garment.")
-        result = process_fn(portrait_path, garment_path, category)
+        result = process_fn(portrait_path, garment_path, category, selected_people or None)
         if result and portrait_path and garment_path:
             p_parsed = parse_filename(Path(portrait_path).name)
             g_parsed = parse_filename(Path(garment_path).name)
@@ -109,6 +109,20 @@ def build_demo(process_fn):
                     choices=["tops", "bottoms", "one-pieces"],
                     value="tops",
                     label="Category",
+                )
+
+                detect_btn = gr.Button("Detect People", variant="secondary")
+                people_gallery = gr.Gallery(
+                    label="Detected People",
+                    columns=6,
+                    height=150,
+                    visible=False,
+                    allow_preview=False,
+                )
+                people_selection = gr.CheckboxGroup(
+                    label="Select people to dress",
+                    choices=[],
+                    visible=False,
                 )
 
                 submit_btn = gr.Button("Try On", variant="primary")
@@ -217,9 +231,26 @@ def build_demo(process_fn):
                     outputs=[garment_gallery, selected_garment, preview_garment, garment_url_input],
                 )
 
+                def on_detect(portrait_path):
+                    if detect_fn is None or portrait_path is None:
+                        raise gr.Error("Please select a portrait first.")
+                    people = detect_fn(portrait_path)
+                    n = len(people)
+                    choices = [f"Person {i+1}" for i in range(n)]
+                    return (
+                        gr.update(value=people, visible=True),
+                        gr.update(choices=choices, value=choices, visible=True),
+                    )
+
+                detect_btn.click(
+                    on_detect,
+                    inputs=[selected_portrait],
+                    outputs=[people_gallery, people_selection],
+                )
+
                 submit_btn.click(
                     process_and_save,
-                    inputs=[selected_portrait, selected_garment, category],
+                    inputs=[selected_portrait, selected_garment, category, people_selection],
                     outputs=result_image,
                 )
 
@@ -402,7 +433,7 @@ def build_demo(process_fn):
 
 
 if __name__ == "__main__":
-    def dummy_process(portrait, garment, category):
+    def dummy_process(portrait, garment, category, selected_people=None):
         return Image.new("RGB", (512, 512), (200, 200, 200))
     demo = build_demo(dummy_process)
     demo.launch()
