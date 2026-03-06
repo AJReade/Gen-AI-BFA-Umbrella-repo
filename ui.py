@@ -164,12 +164,14 @@ def build_demo(process_fn, detect_fn=None, max_people=MAX_PEOPLE):
                                 value=default_garment,
                                 label=f"Person {i + 1} — Garment",
                                 scale=3,
+                                interactive=True,
                             )
                             cat = gr.Radio(
                                 choices=["tops", "bottoms", "one-pieces"],
                                 value="tops",
                                 label="Category",
                                 scale=2,
+                                interactive=True,
                             )
                             dds.append(dd)
                             cats.append(cat)
